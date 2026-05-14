@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from harness import __version__
-from harness.config import load_config, ensure_monster_dirs
+from harness.config import load_config, ensure_monster_dirs, MONSTER_MODELS_DIR, resolve_path
 from harness.memory import SessionStore
 from harness.comms import Message, Caste, Action, ContextHint
 from harness.comms.router import Router
@@ -92,6 +92,21 @@ def cmd_patch(args):
         print(result["diff"], flush=True)
 
 
+def cmd_models(args):
+    mp = Path(resolve_path("~/.monster/models"))
+    if not mp.exists():
+        print("γ|models|none", flush=True)
+        return
+    ggufs = list(mp.glob("*.gguf"))
+    if not ggufs:
+        print("γ|models|empty", flush=True)
+        return
+    for m in sorted(ggufs):
+        size = m.stat().st_size
+        gb = size / (1024**3)
+        print(f"γ|model|{m.name}|{gb:.1f}G", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="monster",
@@ -131,6 +146,9 @@ def main():
     patch_p.add_argument("--apply", dest="dry_run", action="store_false", help="Apply the patch")
     patch_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
 
+    models_p = sub.add_parser("models", help="List models in ~/.monster/models/")
+    models_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
+
     args = parser.parse_args()
     if args.command == "init":
         cmd_init(args)
@@ -148,5 +166,7 @@ def main():
         cmd_cloud(args)
     elif args.command == "patch":
         cmd_patch(args)
+    elif args.command == "models":
+        cmd_models(args)
     else:
         parser.print_help()

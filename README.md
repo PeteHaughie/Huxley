@@ -42,12 +42,33 @@ Three layers, each progressively more persistent:
 2. **Vector DB (Chroma)** — Semantic memory in `~/.monster/<session>/interlink/`. Queried by Alpha for relevant past context.
 3. **MemQ Graph** — Entity-relation graph. Nodes = concepts/files/agents, edges = typed relationships. JSON-backed, queryable by traversal.
 
-### Session Lifecycle
+### Models
+
+GGUF models are stored in `~/.monster/models/` — a central, harness-managed directory.
+
+| Model | Path | Caste |
+|-------|------|-------|
+| Gemma 4 e4B (main) | `~/.monster/models/gemma-4-e4b-Q4_K_M.gguf` | α |
+| Gemma 4 e4B draft (MTP) | `~/.monster/models/gemma-4-e4b-draft.gguf` | α |
+| Ternary Bonsai 8B (llama.cpp fallback) | `~/.monster/models/ternary-bonsai-8b.gguf` | β |
+
+```bash
+# List models in the models directory
+monster models
+# γ|model|gemma-4-e4b-Q4_K_M.gguf|5.2G
+```
+
+MLX models (primary Beta engine) are cached by MLX in its own Hugging Face cache — no extra management needed.
+
+Model paths in `~/.monster/config.yaml` use `~` expansion and are resolved at load time.
+
+## Session Lifecycle
 
 ```
 ~/.monster/
   registry.json       # path → session-id mapping
   config.yaml         # global harness configuration
+  models/             # GGUF model files (Gemma 4, Bonsai fallback, etc.)
   skills/             # monster-specific skills (shadow ~/.agents/skills/)
   sessions/
     <uuid>/
@@ -144,6 +165,7 @@ monster patch --apply harness/config.py
 | `monster infer <caste> <prompt>` | Route prompt through a caste (α, β, or γ) |
 | `monster api` | List all functions and classes across harness modules |
 | `monster modules` | List all harness modules |
+| `monster models` | List GGUF models in `~/.monster/models/` |
 | `monster cloud <prompt>` | Route prompt via cloud endpoint |
 | `monster patch [--apply] <file>` | Dry-run or apply a self-mod patch |
 
