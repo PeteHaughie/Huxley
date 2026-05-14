@@ -13,6 +13,7 @@ from harness.cloud.router import CloudRouter
 from harness.selfmod.introspect import module_map, api_surface
 from harness.selfmod.patcher import Patcher
 from harness.board import JobBoard, Task, Level as BLevel, State as BState
+from harness.board.serve import serve as board_serve
 
 
 def cmd_init(args):
@@ -122,6 +123,8 @@ def cmd_board(args):
         _board_claim(board, args)
     elif args.board_cmd == "complete":
         _board_complete(board, args)
+    elif args.board_cmd == "serve":
+        board_serve(port=args.port)
 
 
 def _board_list(board: JobBoard, args):
@@ -250,6 +253,9 @@ def main():
     board_complete_p = board_sub.add_parser("complete", help="Mark task as done")
     board_complete_p.add_argument("task_id", help="Task ID")
     board_complete_p.add_argument("--result", help="Result text")
+
+    board_serve_p = board_sub.add_parser("serve", help="Start Kanban web UI")
+    board_serve_p.add_argument("--port", type=int, default=8080, help="HTTP port (default 8080)")
 
     args = parser.parse_args()
     if args.command == "init":

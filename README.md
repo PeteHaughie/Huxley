@@ -92,6 +92,10 @@ monster board show <task-id>          # partial UUID prefix ok
 
 # Complete work
 monster board complete <task-id> --result "done"
+
+# Launch Kanban web UI (Python stdlib, zero deps)
+monster board serve
+# γ|board|serve|http://localhost:8080
 ```
 
 ### Memory System
@@ -241,6 +245,7 @@ monster patch --apply harness/config.py
 | `monster board show <task-id>` | Show full task details |
 | `monster board claim <level> --caste <caste>` | Pull next available task into in_progress |
 | `monster board complete <task-id> --result` | Mark task as done with result |
+| `monster board serve [--port]` | Start Kanban web UI (default http://localhost:8080) |
 
 ## Configuration
 
@@ -341,8 +346,9 @@ monster/
 │   ├── __init__.py          # Package version
 │   ├── __main__.py          # python -m harness
 │   ├── cli.py               # Entry point with 10+ commands
-│   ├── board/
-│   │   └── core.py          # JobBoard, Task, Level, State, transitions
+    │   ├── board/
+    │   │   ├── core.py          # JobBoard, Task, Level, State, transitions
+    │   │   └── serve.py         # Kanban web UI server
 │   ├── config.py            # YAML config, ~/.monster/ bootstrap
 │   ├── caste/
 │   │   ├── _base.py         # CasteBase ABC
