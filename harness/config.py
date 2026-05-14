@@ -6,6 +6,7 @@ MONSTER_HOME = Path.home() / ".monster"
 MONSTER_SKILLS_DIR = MONSTER_HOME / "skills"
 MONSTER_MODELS_DIR = MONSTER_HOME / "models"
 MONSTER_BOARD_DIR = MONSTER_HOME / "board"
+MONSTER_SCHEDULER_DIR = MONSTER_HOME / "scheduler"
 DEFAULT_CONFIG_PATH = MONSTER_HOME / "config.yaml"
 REGISTRY_PATH = MONSTER_HOME / "registry.json"
 SESSIONS_DIR = MONSTER_HOME / "sessions"
@@ -40,6 +41,15 @@ DEFAULT_CONFIG = {
         "endpoint": "",
         "api_key": "",
         "model": "",
+    },
+    "daemon": {
+        "enabled": False,
+        "port": 8083,
+        "log_file": "~/.monster/monsterd.log",
+    },
+    "scheduler": {
+        "enabled": True,
+        "tick_interval": 5,
     },
     "harness": {
         "context_hint": "caveman",

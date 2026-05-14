@@ -14,6 +14,7 @@ from harness.selfmod.introspect import module_map, api_surface
 from harness.selfmod.patcher import Patcher
 from harness.board import JobBoard, Task, Level as BLevel, State as BState
 from harness.board.serve import serve as board_serve
+from harness.daemon.lifecycle import start_daemon, stop_daemon, daemon_status, is_running, DAEMON_PORT
 
 
 def cmd_init(args):
@@ -107,6 +108,87 @@ def cmd_models(args):
         size = m.stat().st_size
         gb = size / (1024**3)
         print(f"γ|model|{m.name}|{gb:.1f}G", flush=True)
+
+
+# -- daemon commands --
+
+def cmd_daemon(args):
+    if args.daemon_cmd == "start":
+        ok = start_daemon()
+        if ok:
+            print("γ|monsterd|start|ok", flush=True)
+        else:
+            print("γ|monsterd|start|already_running" if is_running() else "γ|monsterd|start|fail", flush=True)
+    elif args.daemon_cmd == "stop":
+        ok = stop_daemon()
+        print("γ|monsterd|stop|ok" if ok else "γ|monsterd|stop|not_running", flush=True)
+    elif args.daemon_cmd == "status":
+        st = daemon_status()
+        if st["running"]:
+            print(f"γ|monsterd|running|scheduler={st.get('scheduler_running', False)}|schedules={st.get('schedules', 0)}", flush=True)
+        else:
+            print("γ|monsterd|stopped", flush=True)
+
+
+# -- schedule commands --
+
+def _daemon_api(method: str, path: str, body: dict | None = None) -> dict | list | None:
+    import urllib.request, urllib.error, json
+    url = f"http://127.0.0.1:{DAEMON_PORT}{path}"
+    data = json.dumps(body).encode() if body else None
+    req = urllib.request.Request(url, data=data, method=method)
+    req.add_header("Content-Type", "application/json")
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            return json.loads(resp.read())
+    except (urllib.error.URLError, ConnectionError, OSError) as e:
+        return None
+
+
+def cmd_schedule(args):
+    if args.sched_cmd == "list":
+        data = _daemon_api("GET", "/v1/schedules")
+        if data is None:
+            print("γ|schedule|err|daemon not running", flush=True)
+            return
+        if not data:
+            print("γ|schedule|empty", flush=True)
+            return
+        for s in data:
+            icon = "●" if s.get("enabled") else "○"
+            wtype = s.get("when", {}).get("type", "?")
+            print(f"γ|schedule|{icon}|{s['id'][:8]}|{wtype:<10}|{s.get('title','-')}", flush=True)
+    elif args.sched_cmd == "add":
+        when_val = args.every if args.when_type == "interval" else args.at
+        when_key = "every" if args.when_type == "interval" else "at"
+        body = {
+            "when": {"type": args.when_type, when_key: when_val},
+            "action": {"type": "post_to_board", "level": args.level or "task", "title": args.title, "prompt": args.prompt or ""},
+            "title": args.title,
+        }
+        data = _daemon_api("POST", "/v1/schedules", body)
+        if data is None:
+            print("γ|schedule|err|daemon not running", flush=True)
+            return
+        print(f"γ|schedule|add|{data['id'][:12]}|{args.when_type}|{args.title}", flush=True)
+    elif args.sched_cmd == "remove":
+        data = _daemon_api("DELETE", f"/v1/schedules/{args.schedule_id}")
+        if data is None:
+            print("γ|schedule|err|daemon not running", flush=True)
+            return
+        print(f"γ|schedule|remove|{'ok' if data.get('status') == 'removed' else 'not_found'}", flush=True)
+    elif args.sched_cmd == "history":
+        sid = getattr(args, "schedule_id", None)
+        q = f"?id={sid}" if sid else ""
+        data = _daemon_api("GET", f"/v1/schedule/history{q}")
+        if data is None:
+            print("γ|schedule|err|daemon not running", flush=True)
+            return
+        if not data:
+            print("γ|schedule|history|empty", flush=True)
+            return
+        for e in data[-10:]:
+            print(f"γ|schedule|history|{e['schedule_id'][:8]}|{e['action'].get('type','?')}|{e.get('result','?')}|{e.get('at','')[:19]}", flush=True)
 
 
 # -- board commands --
@@ -257,6 +339,28 @@ def main():
     board_serve_p = board_sub.add_parser("serve", help="Start Kanban web UI")
     board_serve_p.add_argument("--port", type=int, default=8080, help="HTTP port (default 8080)")
 
+    daemon_p = sub.add_parser("daemon", help="Control the monster background daemon")
+    daemon_sub = daemon_p.add_subparsers(dest="daemon_cmd")
+    daemon_sub.add_parser("start", help="Start monsterd in background")
+    daemon_sub.add_parser("stop", help="Stop monsterd")
+    daemon_sub.add_parser("status", help="Check if monsterd is running")
+
+    sched_p = sub.add_parser("schedule", help="Manage scheduled tasks")
+    sched_sub = sched_p.add_subparsers(dest="sched_cmd")
+    sched_sub.add_parser("list", help="List all schedules")
+    sched_add_p = sched_sub.add_parser("add", help="Add a schedule")
+    sched_add_p.add_argument("when_type", choices=["interval", "daily_at"], help="Trigger type")
+    sched_add_p.add_argument("title", help="Schedule title / board task title")
+    sched_add_p.add_argument("--every", type=int, default=3600, help="Seconds between ticks (for interval)")
+    sched_add_p.add_argument("--at", default="02:00", help="HH:MM time (for daily_at)")
+    sched_add_p.add_argument("--level", choices=["epic", "task", "unit"], default="task", help="Board task level")
+    sched_add_p.add_argument("--prompt", help="Task prompt text")
+    sched_add_p.add_argument("--action", choices=["post_to_board"], default="post_to_board", help="Action type")
+    sched_rm_p = sched_sub.add_parser("remove", help="Remove a schedule")
+    sched_rm_p.add_argument("schedule_id", help="Schedule ID")
+    sched_hist_p = sched_sub.add_parser("history", help="Show schedule firing history")
+    sched_hist_p.add_argument("--id", dest="schedule_id", help="Filter by schedule ID")
+
     args = parser.parse_args()
     if args.command == "init":
         cmd_init(args)
@@ -278,5 +382,9 @@ def main():
         cmd_models(args)
     elif args.command == "board":
         cmd_board(args)
+    elif args.command == "daemon":
+        cmd_daemon(args)
+    elif args.command == "schedule":
+        cmd_schedule(args)
     else:
         parser.print_help()
