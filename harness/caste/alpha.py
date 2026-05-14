@@ -36,6 +36,10 @@ class Alpha(CasteBase):
         url = f"{self._endpoint()}/health"
         deadline = time.time() + timeout
         while time.time() < deadline:
+            if self._proc and self._proc.poll() is not None:
+                err = self._proc.stderr.read().decode(errors="replace") if self._proc.stderr else ""
+                print(f"γ|alpha|crashed|{err}", flush=True)
+                return False
             try:
                 urllib.request.urlopen(url, timeout=2)
                 return True
@@ -60,16 +64,28 @@ class Alpha(CasteBase):
         ]
         if acfg.get("mtp") and acfg.get("draft_model"):
             cmd.extend(["-md", acfg["draft_model"]])
-            cmd.extend(["--draft-block-size", str(acfg.get("draft_block_size", 3))])
-            cmd.extend(["--draft-max", str(acfg.get("draft_max", 8))])
+            cmd.extend(["--spec-draft-n-max", str(acfg.get("draft_max", 8))])
 
         try:
             self._proc = subprocess.Popen(
                 cmd,
                 stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
             )
-            return self._wait_for_server()
+            ok = self._wait_for_server()
+            if not ok:
+                ret = self._proc.poll()
+                err = ""
+                if ret is not None:
+                    err = self._proc.stderr.read().decode(errors="replace")[:500] if self._proc.stderr else ""
+                    self._proc = None
+                else:
+                    self._proc.kill()
+                    self._proc.wait(timeout=5)
+                    self._proc = None
+                    err = "process still running after timeout"
+                print(f"γ|alpha|server_fail|{err[:200]}", flush=True)
+            return ok
         except FileNotFoundError:
             return False
 
@@ -98,7 +114,7 @@ class Alpha(CasteBase):
             return Message(
                 caste=Caste.ALPHA,
                 action=Action.INFER,
-                payload={"error": "alpha server unavailable — install llama.cpp for llama-server"},
+                payload={"error": f"alpha server unavailable on port {ALPHA_PORT} — install llama.cpp or check config"},
                 session=msg.session,
             )
         try:
