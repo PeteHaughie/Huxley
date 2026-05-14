@@ -11,6 +11,18 @@ class Caste(str, Enum):
     BETA = "\u03b2"
     GAMMA = "\u03b3"
 
+    @classmethod
+    def from_alias(cls, s: str):
+        table = {
+            "\u03b1": cls.ALPHA, "α": cls.ALPHA, "a": cls.ALPHA, "alpha": cls.ALPHA,
+            "\u03b2": cls.BETA,  "β": cls.BETA,  "b": cls.BETA,  "beta": cls.BETA,
+            "\u03b3": cls.GAMMA, "γ": cls.GAMMA, "g": cls.GAMMA, "gamma": cls.GAMMA,
+        }
+        key = s.lower().strip()
+        if key not in table:
+            raise ValueError(f"unknown caste alias: {s} (use a/b/g or α/β/γ)")
+        return table[key]
+
 
 class Action(str, Enum):
     INFER = "infer"

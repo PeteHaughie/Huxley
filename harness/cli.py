@@ -43,7 +43,7 @@ def cmd_skills(args):
 def cmd_infer(args):
     router = Router()
     msg = Message(
-        caste=Caste(args.caste),
+        caste=Caste.from_alias(args.caste),
         action=Action.INFER,
         payload={"prompt": args.prompt},
         context_hint=ContextHint(args.context),
@@ -126,7 +126,7 @@ def main():
     skills_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
 
     infer_p = sub.add_parser("infer", help="Run inference on a caste")
-    infer_p.add_argument("caste", choices=["α", "β", "γ"], help="Caste to infer from")
+    infer_p.add_argument("caste", choices=["α", "β", "γ", "a", "b", "g", "alpha", "beta", "gamma"], help="Caste to infer from (a/b/g or α/β/γ)")
     infer_p.add_argument("prompt", help="Prompt text")
     infer_p.add_argument("--context", choices=["caveman", "normal", "full"], default="caveman")
     infer_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)

@@ -24,10 +24,10 @@ DEFAULT_CONFIG = {
     },
     "beta": {
         "engine": "mlx",
-        "model": "prism-ml/Ternary-Bonsai-8B",
+        "model": "prism-ml/Ternary-Bonsai-8B-gguf",
         "ctx_size": 8192,
         "fallback_engine": "llama.cpp",
-        "fallback_model": "~/.monster/models/ternary-bonsai-8b.gguf",
+        "fallback_model": "~/.monster/models/Ternary-8B-Q2_0.gguf",
     },
     "gamma": {
         "endpoint": "http://localhost:11434/v1",
