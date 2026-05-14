@@ -3,6 +3,7 @@ import subprocess
 import time
 import signal
 import os
+import re
 from pathlib import Path
 from typing import Optional
 
@@ -10,6 +11,8 @@ from harness.caste._base import CasteBase
 from harness.comms import Message, Caste, Action, ContextHint
 from harness.server.inference import OpenAICompatibleClient
 from harness.config import load_config
+
+ALPHA_PORT = int(os.environ.get("MONSTER_ALPHA_PORT", "8081"))
 
 
 class Alpha(CasteBase):
@@ -22,16 +25,16 @@ class Alpha(CasteBase):
         self._proc: Optional[subprocess.Popen] = None
         self._client: Optional[OpenAICompatibleClient] = None
 
-    def start_server(self) -> bool:
+    def start_server(self) -> Optional[str]:
         acfg = self.cfg["alpha"]
-        if self.health():
-            return True
+        if self._proc and self._proc.poll() is None:
+            return f"http://127.0.0.1:{ALPHA_PORT}"
 
         cmd = [
             "llama-server",
             "-m", acfg["model"],
             "--host", "127.0.0.1",
-            "--port", "0",
+            "--port", str(ALPHA_PORT),
             "-ngl", str(acfg["ngl"]),
             "-c", str(acfg["ctx_size"]),
             "--cache-type-k", acfg["cache_type_k"],
@@ -49,9 +52,11 @@ class Alpha(CasteBase):
                 stderr=subprocess.DEVNULL,
             )
             time.sleep(2)
-            return self._proc.poll() is None
+            if self._proc.poll() is not None:
+                return None
+            return f"http://127.0.0.1:{ALPHA_PORT}"
         except FileNotFoundError:
-            return False
+            return None
 
     def stop_server(self):
         if self._proc is not None:
@@ -66,21 +71,21 @@ class Alpha(CasteBase):
     def client(self) -> OpenAICompatibleClient:
         if self._client is None:
             self._client = OpenAICompatibleClient(
-                endpoint="http://127.0.0.1:8080/v1",
+                endpoint=f"http://127.0.0.1:{ALPHA_PORT}/v1",
                 model="gemma-4-e4b",
                 timeout=60.0,
             )
         return self._client
 
     def infer(self, msg: Message) -> Message:
-        if not self.health():
-            if not self.start_server():
-                return Message(
-                    caste=Caste.ALPHA,
-                    action=Action.INFER,
-                    payload={"error": "alpha server unavailable"},
-                    session=msg.session,
-                )
+        endpoint = self.start_server()
+        if not endpoint:
+            return Message(
+                caste=Caste.ALPHA,
+                action=Action.INFER,
+                payload={"error": "alpha server unavailable — install llama.cpp for llama-server"},
+                session=msg.session,
+            )
         try:
             resp = self.client().chat(
                 messages=[{"role": "user", "content": _fmt_alpha_prompt(msg)}],

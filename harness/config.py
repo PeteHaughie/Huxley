@@ -24,11 +24,11 @@ DEFAULT_CONFIG = {
         "draft_max": 8,
     },
     "beta": {
-        "engine": "mlx",
-        "model": "prism-ml/Ternary-Bonsai-8B-gguf",
+        "engine": "llama.cpp",
+        "model": "~/.monster/models/Bonsai-8B.gguf",
         "ctx_size": 8192,
-        "fallback_engine": "llama.cpp",
-        "fallback_model": "~/.monster/models/Ternary-8B-Q2_0.gguf",
+        "fallback_engine": "mlx",
+        "fallback_model": "prism-ml/Ternary-Bonsai-8B",
     },
     "gamma": {
         "endpoint": "http://localhost:11434/v1",
@@ -74,7 +74,11 @@ def load_config() -> dict:
     with open(DEFAULT_CONFIG_PATH) as f:
         cfg = yaml.safe_load(f) or {}
     merged = DEFAULT_CONFIG.copy()
-    merged.update(cfg)
+    for section, values in cfg.items():
+        if section in merged and isinstance(merged[section], dict):
+            merged[section].update(values)
+        else:
+            merged[section] = values
     _resolve_model_paths(merged)
     return merged
 
@@ -82,6 +86,7 @@ def load_config() -> dict:
 _model_path_keys = [
     ("alpha", "model"),
     ("alpha", "draft_model"),
+    ("beta", "model"),
     ("beta", "fallback_model"),
     ("cloud", "model"),
 ]
