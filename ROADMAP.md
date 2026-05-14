@@ -19,7 +19,160 @@ Exploratory ideas and future directions beyond the initial implementation.
 
 ---
 
-## 2. Session Archaeology (Curiosity Engine)
+## 2. Monster Scheduler (Time-Aware Tick Loop)
+
+**Goal**: In-process scheduler within monsterd that triggers actions based on time, idle detection, and board state — without touching the host crontab or requiring external scripts.
+
+The scheduler is not a separate daemon. It is a loop inside monsterd's async event loop. It wakes every N seconds, checks what's due, and posts tasks to the board or triggers α actions directly.
+
+### Architecture
+
+```
+monsterd event loop
+    │
+    ├── tick loop (every 5s by default)
+    │       │
+    │       ├── check schedule registry → fire due entries
+    │       ├── check board state → fire idle/backlog triggers
+    │       └── check peer table → fire swarm maintenance
+    │
+    ├── board (pull queue)
+    ├── α/β/γ castes
+    └── registry API client
+```
+
+The scheduler is a **producer for the board**. When a tick fires, it creates a board entry. Castes claim it via the normal pull model. No caste needs to know about time — they only see board entries.
+
+### Schedule Storage
+
+`~/.monster/scheduler/` — one JSON file per scheduled task, survives restarts and machine reboots:
+
+```
+~/.monster/scheduler/
+  schedules.json         # all schedules (index)
+  history.json           # last-N firings per schedule (for audit)
+```
+
+Each schedule:
+
+```json
+{
+  "id": "sched-abc123",
+  "when": {
+    "type": "interval",
+    "every": 3600,
+    "unit": "seconds"
+  },
+  "action": {
+    "type": "post_to_board",
+    "level": "task",
+    "title": "daily archaeology scan",
+    "prompt": "scan ~/.monster/sessions/ for patterns"
+  },
+  "state": {
+    "enabled": true,
+    "last_fired": "2026-05-14T14:00:00Z",
+    "next_fire": "2026-05-14T15:00:00Z",
+    "missed_behaviour": "skip"
+  }
+}
+```
+
+### Trigger Types
+
+| Type | Syntax | Example |
+|------|--------|---------|
+| `interval` | Every N seconds/minutes/hours | every 3600s |
+| `daily_at` | Specific wall-clock time | 02:00 daily |
+| `cron` | Standard cron expression | `0 2 * * 1` (weekly Monday 2am) |
+| `idle` | After N time with empty board | No EPICs for 1 hour → enter daydream |
+| `backlog` | When backlog exceeds threshold | >5 backlogged EPICs → trigger β |
+| `condition` | Arbitrary boolean expression | `peers_online > 0 && board_empty` |
+| `window` | Active time window | Only between 22:00-06:00 (quiet hours) |
+
+`idle` and `backlog` are hybrid triggers — they check both time AND board state. This is what makes the scheduler monster-aware rather than a dumb timer.
+
+### Action Types
+
+| Action | Effect | Example Use |
+|--------|--------|-------------|
+| `post_to_board` | Creates board entry with level/title/prompt | "Run daily archaeology scan" → β picks it up |
+| `trigger_alpha` | Direct α invocation (bypasses board, for fast path) | Log rotation, health check, swarm peer scan |
+| `run_skill` | Execute installed skill with parameters | `monster-caveman` on recent session data |
+| `self_mod` | Internal maintenance task | Archive old sessions, rotate scheduler history |
+
+`post_to_board` is the default and preferred path — it keeps the pull model intact.
+
+### Idle Detection (The Daydream Gate)
+
+The scheduler's most important non-trivial trigger is `idle`:
+
+```
+condition: no EPICs in state {backlog, ready, in_progress} for ≥3600s
+action:    post_to_board(level=epic, title="daydream cycle")
+```
+
+When the α claims this epic:
+1. α checks config: `harness.daydream: true` and `harness.quiet_hours: 22:00-06:00`
+2. If outside quiet hours and daydream is enabled → α runs a daydream loop
+3. If swarm peers are idle → α can propose a collaborative session
+4. If daydream is disabled → α marks the epic as `blocked` with reason "daydream disabled"
+
+The idle trigger is **not a timer** — it's a board-state check that happens every tick. If the board gets busy mid-cycle, the trigger condition is no longer met and nothing fires.
+
+### Timezone and Portability
+
+- All schedules store `next_fire` in UTC
+- `daily_at` and `cron` resolve to UTC internally but accept local timezone (read from system `TZ` or config `harness.timezone`)
+- No dependency on system `cron` or `launchd` timers
+- Works identically on macOS, Linux, and any other POSIX host
+
+### Missed Ticks (Downtime Recovery)
+
+When monsterd restarts after being down, the scheduler checks `last_fired` against current time:
+
+| `missed_behaviour` | What happens |
+|--------------------|--------------|
+| `skip` (default) | Missed ticks are ignored. Next fire at regular interval from now. |
+| `catch_up` | Fire once immediately, then resume normal schedule. Use for critical maintenance (log rotation). |
+| `fire_once` | Fire if downtime exceeded the interval, then reset. Use for daily tasks ("did archaeology run today?"). |
+
+Persistent schedules mean the scheduler is stateful — it survives reboots without manual re-registration.
+
+### Commands
+
+```
+monsterctl schedule list              # view all schedules
+monsterctl schedule add <type> ...    # add a schedule (e.g. --every 3600 --action post_to_board ...)
+monsterctl schedule remove <id>       # delete a schedule
+monsterctl schedule pause <id>        # temporarily disable without deleting
+monsterctl schedule history <id>      # view last-N firings
+```
+
+The α can also autonomously register schedules:
+
+```
+α detects: "user summarises session every morning at 9am → I'll create a daily schedule"
+α posts:   schedule_add{every: 86400, action: post_to_board, title: "morning summarisation"}
+```
+
+The α never needs human permission to add a schedule — it's a board entry like any other. The human can delete or pause it via `monsterctl schedule`.
+
+### Scheduler vs. Board Relationship
+
+```
+scheduler fires ──→ post_to_board ──→ castes claim (pull model)
+                                       ↑
+                              human can also post here
+```
+
+The scheduler is one producer among many. The board doesn't know or care whether a task came from a timer, a human, or another α. This keeps the caste model clean — no caste needs a clock.
+
+**Why**: crontab is wrong for this. It's host-invasive (pollutes system namespace), stateless (can't check board state), and has no concept of monster's internal condition (idle, backlog, peer presence). An in-process tick loop that speaks board protocol gives monsterd autonomous timing without external dependencies.
+
+---
+
+## 3. Session Archaeology (Curiosity Engine)
 
 **Goal**: Harness examines past sessions for recurring themes and offers new skills.
 
@@ -33,7 +186,7 @@ Exploratory ideas and future directions beyond the initial implementation.
 
 ---
 
-## 3. Daydreaming (Background Efficiency Research)
+## 4. Daydreaming (Background Efficiency Research)
 
 **Goal**: Harness continuously investigates ways to improve itself — models, quantization, frameworks — all at the edge. As befits the role of the ruling class only Alphas can afford to dream.
 
@@ -63,7 +216,7 @@ Exploratory ideas and future directions beyond the initial implementation.
 
 ---
 
-## 4. Monster Collective (Trusted Skill Registry)
+## 5. Monster Collective (Trusted Skill Registry)
 
 **Goal**: Formally tested skills shared across monster instances — without becoming a malware distribution pipeline.
 
@@ -203,23 +356,23 @@ raw skill (from α daydream / archaeology)
         │
         ▼
   ┌────────────────┐
-  │  PII Scrubber   │  regex + ML pattern removal
+  │  PII Scrubber  │  regex + ML pattern removal
   └───────┬────────┘
           ▼
-  ┌────────────────┐
+  ┌─────────────────┐
   │  Path Sanitiser │  /Users/petehaughie → $HOME
-  └───────┬────────┘   /Users/wife → $OTHER_HOME
+  └───────┬─────────┘   /Users/wife → $OTHER_HOME
           ▼             absolute paths → <project-root>
-  ┌────────────────┐
-  │ Context Cleaner  │  strip session IDs, machine UUIDs,
-  └───────┬────────┘   hostnames, model names, IPs
+  ┌─────────────────┐
+  │ Context Cleaner │  strip session IDs, machine UUIDs,
+  └───────┬─────────┘   hostnames, model names, IPs
           ▼
   ┌────────────────┐
-  │  Leak Detector  │  "what could someone learn from
+  │  Leak Detector │  "what could someone learn from
   └───────┬────────┘   this?" — α self-audit pass
           ▼
   ┌──────────────────────┐
-  │  Privacy Declaration  │  manifest fields added
+  │  Privacy Declaration │  manifest fields added
   └───────┬──────────────┘
           ▼
    clean skill → registry
@@ -382,20 +535,20 @@ Every skill has a multi-dimensional classification in its manifest:
 
 ```yaml
 classify:
-  function: summarise           # primary action: summarise / extract / transform / generate / route / classify
-  domain: code_review            # context: code_review / email / research / sysadmin / writing / general
+  function: summarise               # primary action: summarise / extract / transform / generate / route / classify
+  domain: code_review               # context: code_review / email / research / sysadmin / writing / general
   domains: [code_review, research]  # secondary domains (optional)
-  caste_min: gamma               # minimum caste required to run
-  caste_ideal: beta              # recommended caste (γ is slower but works)
-  capability:                    # declared capabilities
-    - file_read                  # can read files in allowed paths
-    - structured_output          # outputs JSON/YAML
-    - streaming                  # supports streaming responses
+  caste_min: gamma                  # minimum caste required to run
+  caste_ideal: beta                 # recommended caste (γ is slower but works)
+  capability:                       # declared capabilities
+    - file_read                     # can read files in allowed paths
+    - structured_output             # outputs JSON/YAML
+    - streaming                     # supports streaming responses
   quality:
     tests_passing: 12/12
     peer_ratifications: 4
     install_count: 37
-    uptime_days: 180             # days since first submission without flag
+    uptime_days: 180                # days since first submission without flag
 ```
 
 Search becomes semantic + faceted:
@@ -621,7 +774,7 @@ registry/
 
 ---
 
-## 5. Monster Swarm (Distributed Caste Network)
+## 6. Monster Swarm (Distributed Caste Network)
 
 **Goal**: Monsters on the same LAN discover each other and lend idle β/γ capacity. Idle swarms can confer on problems during quiet time.
 
@@ -694,8 +847,9 @@ When α detects all local EPICs are done and peers are idle:
 ## Implementation Priority
 
 1. **monsterd** — unlocks always-on, which makes everything else viable
-2. **Daydreaming (Discovery only)** — cheap, passive, feeds curiosity engine
-3. **Session Archaeology** — needs data from monsterd running for a while
-4. **Monster Swarm** — needs monsterd + ZeroMQ, unlocks remote compute
-5. **Daydreaming (Full pipeline)** — needs archaeology + swarm for distributed compute
-6. **Monster Collective** — needs at least 2+ monsters and 1 ratified skill
+2. **Scheduler** — makes monsterd useful (autonomous timing, idle detection)
+3. **Daydreaming (Discovery only)** — cheap, passive, feeds curiosity engine
+4. **Session Archaeology** — needs data from monsterd running for a while
+5. **Monster Swarm** — needs monsterd + ZeroMQ, unlocks remote compute
+6. **Daydreaming (Full pipeline)** — needs archaeology + swarm for distributed compute
+7. **Monster Collective** — needs at least 2+ monsters and 1 ratified skill
