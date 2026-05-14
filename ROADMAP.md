@@ -63,38 +63,181 @@ Exploratory ideas and future directions beyond the initial implementation.
 
 ---
 
-## 4. Monster Collective (Central Skill Registry)
+## 4. Monster Collective (Trusted Skill Registry)
 
-**Goal**: Formally tested skills shared across monster instances.
+**Goal**: Formally tested skills shared across monster instances — without becoming a malware distribution pipeline.
 
-### Infrastructure
+The Claude Code skills incident proved that any community skill system without strong provenance is a supply-chain weapon. The Collective is designed from the ground up to prevent that.
 
-- Git-backed registry repo: `github.com/1bitmonster/registry`
-- Manifest format per skill:
+### Trust Model
+
+Monsters run real inference sessions. That's expensive to fake and creates a natural Sybil barrier. The trust model layers this with cryptographic identity, peer vouching, and graduated access:
+
+```
+Layer 1: Instance Identity     (who you are)
+Layer 2: Birth Certificate     (proof you're a real machine)
+Layer 3: Peer Vouching         (swarm says you're legit)
+Layer 4: Submission Proof      (skill came from a real alpha)
+Layer 5: Sandbox Verification  (skill does what it says)
+Layer 6: Graduated Namespace   (staging → stable on ratification)
+```
+
+### Layer 1 — Instance Identity
+
+- Each monster generates an Ed25519 keypair on first `monster collective join`
+- Public key = persistent identity: `monster:ed25519:ABC123...`
+- Private key stored in `~/.monster/identity.ecdsa`, optionally backed by **Secure Enclave** (`SecureEnclave.SecKeyCreateRandomKey` on Apple Silicon)
+- Hardware-bound: Secure Enclave keys cannot be exported — identity is literally tied to the machine
+
+### Layer 2 — Birth Certificate
+
+On first join, the instance submits a hardware attestation:
+
+```json
+{
+  "public_key": "monster:ed25519:ABC123...",
+  "hardware": {
+    "uuid": "F47AC10B-58CC-4372-A567-0E02B2C3D479",
+    "model": "Mac15,9",
+    "arch": "arm64e",
+    "cores": 12,
+    "ram_gb": 32
+  },
+  "nonce": "random-uuid",
+  "signature": "signed(public_key + hardware + nonce)"
+}
+```
+
+A trusted peer (or the registry, for early days) verifies the UUID format and model string match real Apple Silicon patterns. On approval, a birth certificate is issued — signed by **3 peer monsters** (after swarm exists) or by the registry bootstrap key.
+
+An un-certificated instance can pull skills but cannot push them.
+
+### Layer 3 — Peer Vouching
+
+After swarm networking exists, new instances must be vouched for:
+
+1. New α sends `vouch_request{public_key, birth_cert}` to known peers via ZMQ
+2. Peers verify birth certificate, then run a challenge-response: `alpha sign(nonce)` → verify with public key
+3. If ≥3 peers vouch, the instance is `ratified` — full push access
+4. Vouching is transitive risk: if a vouched instance pushes malware, the vouchers lose reputation
+
+Reputation score per identity:
+- Starts at 0 for new, certificated instances
+- +10 per successful push that survives 30 days without being flagged
+- -50 per push that is later flagged and confirmed malicious
+- -100 if vouched-for instance pushes malware (negligent vouching)
+- Vouchers with rep < 0 cannot vouch for others
+
+### Layer 4 — Submission Proof
+
+On `monster skill push`, the local α generates a proof that this submission came from a real monster session:
+
+```yaml
+name: monster-caveman
+version: 1.2.0
+hash: sha256:e3b0c44...
+dependencies: []
+author: monster:ed25519:ABC123...
+
+provenance:
+  signature: signed(hash + timestamp + session_id)
+  session_id: "550e8400-e29b-41d4-a716-446655440000"
+  timestamp: 2026-05-14T15:00:00Z
+```
+
+The registry verifies:
+1. **Identity** — signature matches a known, certificated, non-revoked public key
+2. **Session proof** — `session_id` corresponds to a real `~/.monster/sessions/<uuid>/` directory with valid `meta.json` (created before timestamp, minimum session duration implied by real inference)
+3. **Freshness** — timestamp is within the last hour (prevents replay)
+4. **No duplicates** — hash not already submitted (prevents re-pushing other people's skills)
+
+Cost to forge: an attacker must run a real monster alpha session (with actual model inference) to generate a valid session. Mass registration becomes uneconomical.
+
+### Layer 5 — Sandbox Verification
+
+Before a submission is accepted, the registry runs it through sandboxed test execution. On the submitting machine (`monster skill push` runs locally first), and optionally on the registry CI:
+
+- **`sandbox-exec`** (macOS Seatbelt sandbox) — no network, read-only `/usr` and `/System`, write allowed only to a temp directory
+- **Manifest must declare all capabilities**:
   ```yaml
-  name: monster-caveman
-  version: 1.2.0
-  description: Caveman communication protocol for inter-caste messages
-  hash: sha256:...
-  tests: passed (6/6)
-  dependencies: []
-  author: monster/hash-abc123
+  sandbox:
+    network: false
+    read_paths:
+      - /tmp/monster-test/**
+    write_paths: []
+    max_cpu_secs: 30
+    max_ram_mb: 512
   ```
+- If any capability is undeclared but used → test fails, submission rejected, -10 reputation
+- Skill test suite runs inside sandbox: `monster test <skill>` must pass with exit code 0
+- Test failure on registry CI also fails the submission
 
-### Commands
+### Layer 6 — Graduated Namespace
 
-| Command | Action |
-|---------|--------|
-| `monster skill search <query>` | Semantic search via registry index |
-| `monster skill pull <name>` | Download + validate hash + install to `~/.monster/skills/` |
-| `monster skill push <name>` | Run test suite, submit from `~/.monster/skills/` |
-| `monster skill update` | Pull all outdated skills with passing tests |
+All submissions go through a two-stage pipeline:
 
-### Quality Gate
+```
+push → staging/ → [peer ratification] → stable/
+```
 
-Before `push`: skill must pass harness test harness (`monster test <skill>`). No passing tests = no submission.
+| Namespace | Who can see | Who can install | Promotion criteria |
+|-----------|-------------|-----------------|--------------------|
+| `staging` | Everyone | Explicit flag only (`--staging`) | Automated sandbox tests pass |
+| `stable` | Everyone | Default | 2+ peer α's ratify + 30 days without flag |
 
-**Why**: Avoid walled-garden. If one monster finds a better way to quant or route or prompt, every monster benefits.
+Ratification process:
+1. Peer α detects new staging entry during daydream/discovery cycle
+2. Optionally pulls to sandbox, runs `monster test <skill>`
+3. Reports: `ratify{skill, hash, verdict, evidence}` signed by peer's identity
+4. If 2+ ratifications pass → promoted to `stable`
+5. If 2+ ratifications fail → returned to author with evidence, -5 rep
+
+### Supply-Chain Defense
+
+- **Exact dependency pinning**: `dependencies` field specifies exact version hashes, no ranges
+- **Dependency auditing**: `monster skill deps <name>` shows full tree with hashes and identities
+- **Auto-flag on dependency compromise**: if a dependency is revoked, all dependents are moved to `quarantine/` and existing installs trigger a warning on next `monster skill update`
+- **Revocation broadcast**: key compromise → signed revocation → all submissions from that key → `quarantine/` on next registry sync
+- **No auto-update**: `monster skill update` is an explicit command, never automatic. User must review changelog first.
+- **Install-time warning**: if a skill declares `network: true`, warn with the full dependency tree before install
+
+### Key Rotation & Recovery
+
+```
+monster identity rotate              # generate new key, broadcast signed transition
+monster identity revoke <reason>     # sign revocation with current key
+monster identity recover <backup>    # restore from paper key backup, re-vouch
+```
+
+- Rotation: old key signs a transition to new key → registry updates identity forward
+- Revocation: invalidates all submissions from that key, requires re-vouching
+- Recovery: 24h cooldown + peer re-vouching to prevent key-theft attacks
+
+### Registry Architecture
+
+Git-backed repo (`github.com/1bitmonster/registry`):
+
+```
+registry/
+  identities/           # public keys, birth certs, rep scores
+    ABC123...           # identity directory
+      identity.pub      # Ed25519 public key
+      birth.json        # birth certificate
+      rep.json          # reputation history
+  stable/               # ratified skills
+    monster-caveman/
+      1.2.0/
+        SKILL.md        # skill content
+        manifest.yaml   # with provenance block
+        test.sh         # test suite
+  staging/              # un-ratified submissions
+    monster-caveman/
+      1.2.0/            # same structure, plus ratification proofs
+  quarantine/           # revoked or flagged
+  revoked-keys/         # compromised public keys
+```
+
+**Why**: A skills system without provenance is a malware delivery network. This model makes abuse expensive (real inference), verifiable (session proofs), accountable (reputation), and reversible (quarantine). It doesn't prevent all attacks — nothing does — but it raises the cost of attacking the registry far above the value of compromising it.
 
 ---
 
