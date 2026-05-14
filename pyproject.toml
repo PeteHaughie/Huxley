@@ -1,0 +1,19 @@
+[project]
+name = "1bitmonster"
+version = "0.1.0"
+description = "Hyper-efficient local-first AI agent harness with three-tier caste system"
+requires-python = ">=3.11"
+dependencies = [
+    "pyyaml>=6.0",
+    "chromadb>=0.5.0",
+    "httpx>=0.27.0",
+    "openai>=1.0.0",
+    "uuid7>=0.1.0",
+    "mlx>=0.20.0",
+]
+
+[project.scripts]
+monster = "harness.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["harness*"]
