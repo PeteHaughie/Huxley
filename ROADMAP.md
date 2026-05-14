@@ -323,6 +323,162 @@ The `scrub_pass` hash allows verification that the submitted skill matches the s
 - **No auto-update**: `monster skill update` is an explicit command, never automatic. User must review changelog first.
 - **Install-time warning**: if a skill declares `network: true`, warn with the full dependency tree before install
 
+### Skill Evolution (Forking, Classification & Deprecation)
+
+A skill in the collective is not static. An α pulls it, uses it for 30 days, has an insight — maybe the prompts can be sharper, the test suite more thorough, the approach fundamentally different. The collective must support evolution without fragmentation.
+
+#### Fork Model (Lineage Tracking, Not Walls)
+
+Improvements are **forks** with explicit lineage, not PRs against a canonical original. This avoids maintainer bottlenecks and lets natural selection work:
+
+```
+monster-caveman v1.2.0               ← original
+  ├── monster-caveman v2.0.0         ← major rewrite by original author
+  └── monster-caveman-laconic v1.0.0 ← fork by peer α with different style
+        └── monster-caveman-laconic v1.1.0  ← improvement on the fork
+```
+
+Each fork declares its parent in the manifest:
+
+```yaml
+name: monster-caveman-laconic
+version: 1.0.0
+fork:
+  parent: monster-caveman@1.2.0
+  parent_hash: sha256:e3b0c44...
+  reason: laconic style — 50% fewer tokens than original
+  diff_hash: sha256:...
+```
+
+The registry tracks the full tree. Users can explore:
+
+```
+monster skill lineage monster-caveman-laconic
+# monster-caveman-laconic@1.0.0
+#   └─ monster-caveman@1.2.0  (parent)
+#        └─ monster-caveman@1.0.0  (grandparent — archived)
+```
+
+There is no "original" vs "fork" hierarchy — only ancestry. Any node in the tree can be installed. If a fork gains more installs and better peer ratings than its parent, it naturally becomes the recommended choice.
+
+#### When to Fork vs. When to Extend
+
+The decision is encoded in a `change_class` field on the fork manifest:
+
+| Class | Meaning | Example |
+|-------|---------|---------|
+| `refinement` | Same approach, better execution | Tighter prompts, better tests, fixed edge cases. Compatible with original. |
+| `extension` | Same domain, different angle | Added support for new file types, new output format. Broadens scope. |
+| `alternative` | Different approach, same goal | Using a completely different prompting strategy (e.g., chain-of-thought vs structured output) |
+| `experiment` | Unproven new idea | Novel technique, minimal testing. Must declare `change_class: experiment` — goes to `staging/` only regardless of parent status. |
+
+`refinement` and `extension` forks can go directly to `stable/` if the parent is `stable` and the fork passes sandbox. `alternative` forks must pass the normal staging→stable ratification pipeline. `experiment` forks never leave `staging/` unless reclassified.
+
+This gives a clear path: improve incrementally without bureaucracy, but gate radical changes behind peer review.
+
+#### Classification System
+
+Every skill has a multi-dimensional classification in its manifest:
+
+```yaml
+classify:
+  function: summarise           # primary action: summarise / extract / transform / generate / route / classify
+  domain: code_review            # context: code_review / email / research / sysadmin / writing / general
+  domains: [code_review, research]  # secondary domains (optional)
+  caste_min: gamma               # minimum caste required to run
+  caste_ideal: beta              # recommended caste (γ is slower but works)
+  capability:                    # declared capabilities
+    - file_read                  # can read files in allowed paths
+    - structured_output          # outputs JSON/YAML
+    - streaming                  # supports streaming responses
+  quality:
+    tests_passing: 12/12
+    peer_ratifications: 4
+    install_count: 37
+    uptime_days: 180             # days since first submission without flag
+```
+
+Search becomes semantic + faceted:
+
+```
+monster skill search summarise --domain code_review --caste_min gamma
+monster skill search extract --domain email --caste_ideal beta
+monster skill search transform --quality_min 3
+```
+
+The registry maintains an index. `monster skill suggest <context>` uses the local α to recommend: given what the user is doing right now (based on session archaeology), which skills fit?
+
+#### Supersession (Deprecation with a Path Forward)
+
+A skill is superseded when a fork clearly outclasses it. Supersession is declared explicitly, not inferred:
+
+```yaml
+# In the NEW skill's manifest:
+supersedes:
+  - monster-caveman@1.2.0
+    reason: 40% fewer tokens, same accuracy, broader test coverage
+```
+
+On submission, the registry:
+1. Verifies the old skill exists and the new skill passes sandbox tests
+2. Marks the old skill as `deprecated` — still installable, but with a warning
+3. Creates a redirect: `monster skill pull monster-caveman` → latest non-deprecated version
+4. Records the supersession in both skill lineage trees
+
+Deprecation is **soft** — old versions remain installable by explicit version:
+```
+monster skill pull monster-caveman@1.2.0     # pulls deprecated version (with warning)
+monster skill pull monster-caveman --deprecated  # same as above, no shorthand needed
+```
+
+Supersession can be disputed:
+
+1. Original author signs a `dispute{superseder, evidence}` referencing test results
+2. Registry holds a 7-day peer review period: peers pull both and ratify one
+3. If ≥3 peers ratify the superseder → deprecation stands
+4. If ≥3 peers ratify the original → supersession is reverted, superseder flagged as `alternative`
+5. If no consensus → both marked as `competing` with a link to each other
+
+#### Purging (Archival, Not Deletion)
+
+Skills are never deleted from the registry — that would break dependencies. Instead they move through a lifecycle:
+
+```
+staging/ → stable/ → deprecated/ → archive/
+```
+
+| Stage | Can install | Can depend on | Shows in search | Shows in lineage |
+|-------|-------------|---------------|-----------------|------------------|
+| `stable` | Yes (default) | Yes | Yes (default) | Yes |
+| `deprecated` | Yes (with flag) | Yes (with warning) | No (default) | Yes (struck through) |
+| `archive` | Yes (`--archive` flag) | No — dependencies must migrate | No | Yes (greyed out) |
+
+Promotion to `deprecated`:
+- Skill has been superseded by a ratified fork
+- Skill has had zero installs for 12+ months AND has a viable replacement
+- Original author requests deprecation
+
+Promotion to `archive`:
+- Skill has been `deprecated` for 6+ months
+- No skill currently depends on it
+- A viable replacement exists in `stable/`
+
+Archived skills can be revived: if someone forks an archived skill and submits a `refinement` with passing tests, it goes back to `stable/` directly (no staging period — the original was once trusted).
+
+#### Commands
+
+```
+monster skill fork <name> [--class refinement|extension|alternative|experiment]
+monster skill lineage <name>
+monster skill suggest [--context ...]
+monster skill search <function> [--domain] [--caste_min] [--quality_min]
+monster skill supersede <name>@<version>   # declare your skill supersedes another
+monster skill dispute <superseder>         # challenge a supersession
+monster skill deprecate <name>@<version>   # request deprecation of your own skill
+```
+
+**Why**: A skill registry without evolution is a graveyard. This model keeps the door open for improvement while preventing the two failure modes — either nothing ever changes (maintainer bottleneck) or the registry becomes unusable (fragmentation). Natural selection via lineage + install count + peer ratification drives quality up without central planning.
+
 ### Key Rotation & Recovery
 
 ```
