@@ -5,6 +5,7 @@ from pathlib import Path
 MONSTER_HOME = Path.home() / ".monster"
 MONSTER_SKILLS_DIR = MONSTER_HOME / "skills"
 MONSTER_MODELS_DIR = MONSTER_HOME / "models"
+MONSTER_BOARD_DIR = MONSTER_HOME / "board"
 DEFAULT_CONFIG_PATH = MONSTER_HOME / "config.yaml"
 REGISTRY_PATH = MONSTER_HOME / "registry.json"
 SESSIONS_DIR = MONSTER_HOME / "sessions"
@@ -57,6 +58,7 @@ def ensure_monster_dirs():
     MONSTER_HOME.mkdir(parents=True, exist_ok=True)
     MONSTER_SKILLS_DIR.mkdir(exist_ok=True)
     MONSTER_MODELS_DIR.mkdir(exist_ok=True)
+    MONSTER_BOARD_DIR.mkdir(exist_ok=True)
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     if not DEFAULT_CONFIG_PATH.exists():
         with open(DEFAULT_CONFIG_PATH, "w") as f:

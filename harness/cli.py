@@ -12,6 +12,7 @@ from harness.skill.registry import SkillRegistry
 from harness.cloud.router import CloudRouter
 from harness.selfmod.introspect import module_map, api_surface
 from harness.selfmod.patcher import Patcher
+from harness.board import JobBoard, Task, Level as BLevel, State as BState
 
 
 def cmd_init(args):
@@ -107,6 +108,84 @@ def cmd_models(args):
         print(f"γ|model|{m.name}|{gb:.1f}G", flush=True)
 
 
+# -- board commands --
+
+def cmd_board(args):
+    board = JobBoard()
+    if args.board_cmd == "list":
+        _board_list(board, args)
+    elif args.board_cmd == "post":
+        _board_post(board, args)
+    elif args.board_cmd == "show":
+        _board_show(board, args)
+    elif args.board_cmd == "claim":
+        _board_claim(board, args)
+    elif args.board_cmd == "complete":
+        _board_complete(board, args)
+
+
+def _board_list(board: JobBoard, args):
+    level = BLevel(args.level) if args.level else None
+    state = BState(args.state) if args.state else None
+    tasks = board.list(level=level, state=state)
+    if not tasks:
+        print("γ|board|empty", flush=True)
+        return
+    for t in tasks:
+        tag = f"{t.level.value[0].upper()}"
+        icon = {"backlog": "○", "ready": "◉", "in_progress": "◎", "blocked": "⊘", "done": "●", "archived": "·"}.get(t.state.value, "○")
+        print(f"γ|board|{icon}|{tag}|{t.id[:8]}|{t.state.value:<12}|{t.caste or '-':<4}|{t.title[:60]}", flush=True)
+
+
+def _board_post(board: JobBoard, args):
+    level = BLevel(args.level)
+    t = Task(level=level, title=args.title, prompt=args.prompt or args.title)
+    board.create(t)
+    print(f"γ|board|post|{t.id[:12]}|{t.level.value}|{t.title}", flush=True)
+
+
+def _board_show(board: JobBoard, args):
+    t = board.get(args.task_id)
+    if t is None:
+        print(f"γ|board|not_found|{args.task_id}", flush=True)
+        return
+    children = board.children_of(t.id)
+    print(f"id:      {t.id}", flush=True)
+    print(f"level:   {t.level.value}", flush=True)
+    print(f"state:   {t.state.value}", flush=True)
+    print(f"caste:   {t.caste or '-'}", flush=True)
+    print(f"title:   {t.title}", flush=True)
+    print(f"prompt:  {t.prompt}", flush=True)
+    if t.result:
+        print(f"result:  {t.result[:200]}", flush=True)
+    print(f"created: {t.created}", flush=True)
+    print(f"updated: {t.updated}", flush=True)
+    if children:
+        print(f"children ({len(children)}):", flush=True)
+        for c in children:
+            print(f"  {c.id[:8]} {c.state.value} {c.title[:50]}", flush=True)
+
+
+def _board_claim(board: JobBoard, args):
+    level = BLevel(args.level)
+    t = board.claim(level, caste_tag=args.caste)
+    if t is None:
+        print(f"γ|board|no_tasks|{args.level}", flush=True)
+        return
+    print(f"γ|board|claimed|{t.id[:12]}|{t.level.value}|{t.title}", flush=True)
+    if t.prompt:
+        print(f"prompt: {t.prompt}", flush=True)
+
+
+def _board_complete(board: JobBoard, args):
+    result = args.result or ""
+    t = board.complete(args.task_id, result)
+    if t is None:
+        print(f"γ|board|cannot_complete|{args.task_id}", flush=True)
+        return
+    print(f"γ|board|done|{t.id[:12]}|{t.level.value}|{t.title}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="monster",
@@ -149,6 +228,29 @@ def main():
     models_p = sub.add_parser("models", help="List models in ~/.monster/models/")
     models_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
 
+    board_p = sub.add_parser("board", help="Kanban job board operations")
+    board_sub = board_p.add_subparsers(dest="board_cmd")
+
+    board_list_p = board_sub.add_parser("list", help="List board tasks")
+    board_list_p.add_argument("--level", choices=["epic", "task", "unit"], help="Filter by level")
+    board_list_p.add_argument("--state", choices=["backlog", "ready", "in_progress", "blocked", "done", "archived"], help="Filter by state")
+
+    board_post_p = board_sub.add_parser("post", help="Post a new task to the board")
+    board_post_p.add_argument("level", choices=["epic", "task", "unit"], help="Task level")
+    board_post_p.add_argument("title", help="Task title")
+    board_post_p.add_argument("--prompt", help="Task prompt (defaults to title)")
+
+    board_show_p = board_sub.add_parser("show", help="Show task details")
+    board_show_p.add_argument("task_id", help="Task ID")
+
+    board_claim_p = board_sub.add_parser("claim", help="Claim next available task")
+    board_claim_p.add_argument("level", choices=["epic", "task", "unit"], help="Level to claim from")
+    board_claim_p.add_argument("--caste", help="Caste tag to mark on task")
+
+    board_complete_p = board_sub.add_parser("complete", help="Mark task as done")
+    board_complete_p.add_argument("task_id", help="Task ID")
+    board_complete_p.add_argument("--result", help="Result text")
+
     args = parser.parse_args()
     if args.command == "init":
         cmd_init(args)
@@ -168,5 +270,7 @@ def main():
         cmd_patch(args)
     elif args.command == "models":
         cmd_models(args)
+    elif args.command == "board":
+        cmd_board(args)
     else:
         parser.print_help()
