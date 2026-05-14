@@ -13,17 +13,37 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 ## Architecture
 
 ```
-User ←→ α (Gemma 4 e4B 4bit + MTP + TurboQuant)
-           │
-           ├──→ β (Bonsai Ternary 8B / MLX)
-           │         │
-           │         └──→ Chroma (vector memory)
-           │
-           ├──→ MemQ Graph (entity-relation memory)
-           │
-           ├──→ γ (Apfel — Apple Foundation Model)
-           │
-           └──→ Cloud Endpoint (OpenAI-compatible, optional)
+User
+  │
+  ▼
+α (Gemma 4 e4B)   ←──┐
+  │                     │
+  ├── posts EPICs ──────┤
+  │                     │
+  ▼                     │
+╔══════════════════╗    │
+║   Kanban Board   ║    │  ← shared pull-queue
+║  ~/.monster/board/ ║    │
+╚══════════════════╝    │
+  ▲                     │
+  │                     │
+  ├── β claims EPICs,   │
+  │   decomposes into   │
+  │   UNITS, posts back │
+  │                     │
+  ├── γ claims UNITS,   │
+  │   executes, marks   │
+  │   done              │
+  │                     │
+  └── β sees done,      │
+      assembles, marks ─┘
+      EPIC complete
+
+Memory (all castes):
+  ├── Chroma (vector memory)
+  ├── MemQ Graph (entity-relation memory)
+  ├── TurboQuant KV Cache
+  └── Cloud Endpoint (OpenAI-compatible, optional)
 ```
 
 ### Caste System
@@ -33,6 +53,46 @@ User ←→ α (Gemma 4 e4B 4bit + MTP + TurboQuant)
 | γ | Apple Foundation Model | [Apfel](https://github.com/Arthur-Ficial/apfel) | 4K | File I/O, classification, extraction, grep generation. Stateless, disposable. |
 | β | [Ternary Bonsai 8B](https://prismml.com/news/ternary-bonsai) | MLX (primary) / llama.cpp (fallback) | 8K | Summarisation, routing, task decomposition. Short-term context only. |
 | α | [Gemma 4 e4B](https://ai.google.dev/gemma) 4bit | llama.cpp + MTP + TurboQuant | 32K | Orchestration, HCI, long-term memory, skill dispatch, cloud routing. |
+
+### Job Board
+
+All inter-caste work flows through a shared Kanban board at `~/.monster/board/`. Castes never call each other directly — they pull tasks from the board.
+
+```
+Levels:  EPIC  ──β──→  TASK  ──β──→  UNIT
+         (α posts)     (optional)    (γ executes)
+
+States:  backlog → ready → in_progress → done
+                                    ↘→ blocked → backlog
+```
+
+| Level | Who | What |
+|-------|-----|------|
+| EPIC | α posts, β claims | High-level goal or feature request |
+| TASK | β posts, β claims | Decomposition step (optional intermediate) |
+| UNIT | β posts, γ claims | Atomic execution unit — file I/O, classify, extract |
+
+State machine enforces valid transitions (e.g. `backlog → ready` before `in_progress`). Tasks track caste ownership, timestamps, parent hierarchy, and result text.
+
+```bash
+# View the board
+monster board list
+monster board list --level epic
+monster board list --state in_progress
+
+# Post work
+monster board post epic "refactor memory system" --prompt "..."
+monster board post unit "implement GET endpoint"
+
+# Claim work (pulls next backlog→ready→in_progress)
+monster board claim epic --caste β
+
+# Show details
+monster board show <task-id>          # partial UUID prefix ok
+
+# Complete work
+monster board complete <task-id> --result "done"
+```
 
 ### Memory System
 
@@ -69,6 +129,7 @@ Model paths in `~/.monster/config.yaml` use `~` expansion and are resolved at lo
   registry.json       # path → session-id mapping
   config.yaml         # global harness configuration
   models/             # GGUF model files (Gemma 4, Bonsai fallback, etc.)
+  board/              # Kanban job board (one JSON file per task)
   skills/             # monster-specific skills (shadow ~/.agents/skills/)
   sessions/
     <uuid>/
@@ -156,6 +217,8 @@ monster patch --apply harness/config.py
 
 ## Commands
 
+### General
+
 | Command | Description |
 |---------|-------------|
 | `monster --version` | Print version |
@@ -168,6 +231,16 @@ monster patch --apply harness/config.py
 | `monster models` | List GGUF models in `~/.monster/models/` |
 | `monster cloud <prompt>` | Route prompt via cloud endpoint |
 | `monster patch [--apply] <file>` | Dry-run or apply a self-mod patch |
+
+### Board (Kanban Job Queue)
+
+| Command | Description |
+|---------|-------------|
+| `monster board list [--level] [--state]` | List tasks, optionally filtered |
+| `monster board post <level> <title>` | Post a new task (epic/task/unit) |
+| `monster board show <task-id>` | Show full task details |
+| `monster board claim <level> --caste <caste>` | Pull next available task into in_progress |
+| `monster board complete <task-id> --result` | Mark task as done with result |
 
 ## Configuration
 
@@ -267,7 +340,9 @@ monster/
 ├── harness/
 │   ├── __init__.py          # Package version
 │   ├── __main__.py          # python -m harness
-│   ├── cli.py               # Entry point with 9 commands
+│   ├── cli.py               # Entry point with 10+ commands
+│   ├── board/
+│   │   └── core.py          # JobBoard, Task, Level, State, transitions
 │   ├── config.py            # YAML config, ~/.monster/ bootstrap
 │   ├── caste/
 │   │   ├── _base.py         # CasteBase ABC
@@ -292,8 +367,8 @@ monster/
 │   │   ├── introspect.py    # AST-based API surface discovery
 │   │   ├── patcher.py       # Dry-run/apply/rollback patches
 │   │   └── restart.py       # SIGHUP hot-reload
-│   └── server/
-│       └── inference.py     # Shared OpenAICompatibleClient
+│   ├── server/
+│   │   └── inference.py     # Shared OpenAICompatibleClient
 ├── PLAN.md                  # Architecture and implementation plan
 ├── ROADMAP.md               # Future directions
 ├── pyproject.toml           # Python package configuration
