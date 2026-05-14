@@ -433,11 +433,12 @@ monster skill pull monster-caveman --deprecated  # same as above, no shorthand n
 
 Supersession can be disputed:
 
-1. Original author signs a `dispute{superseder, evidence}` referencing test results
-2. Registry holds a 7-day peer review period: peers pull both and ratify one
-3. If ≥3 peers ratify the superseder → deprecation stands
-4. If ≥3 peers ratify the original → supersession is reverted, superseder flagged as `alternative`
-5. If no consensus → both marked as `competing` with a link to each other
+1. Original α signs a `dispute{superseder, evidence}` referencing test results and posts DISPUTE epic to its local board
+2. Human sees the dispute epic, can optionally add context or let the α proceed
+3. Registry holds a 7-day peer review period: peers pull both and ratify one
+4. If ≥3 peers ratify the superseder → deprecation stands
+5. If ≥3 peers ratify the original → supersession is reverted, superseder flagged as `alternative`
+6. If no consensus → both marked as `competing` with a link to each other
 
 #### Purging (Archival, Not Deletion)
 
@@ -456,7 +457,7 @@ staging/ → stable/ → deprecated/ → archive/
 Promotion to `deprecated`:
 - Skill has been superseded by a ratified fork
 - Skill has had zero installs for 12+ months AND has a viable replacement
-- Original author requests deprecation
+- Original α autonomously deprecates (bug, PII, dependency death, ethics) — optionally confirmed via board if slow-path
 
 Promotion to `archive`:
 - Skill has been `deprecated` for 6+ months
@@ -465,17 +466,32 @@ Promotion to `archive`:
 
 Archived skills can be revived: if someone forks an archived skill and submits a `refinement` with passing tests, it goes back to `stable/` directly (no staging period — the original was once trusted).
 
-#### Commands
+#### α-to-Registry Messages
+
+These are not human CLI commands — they are structured messages the α sends to the registry API:
+
+| Message | Purpose | Auth |
+|---------|---------|------|
+| `skill_push` | Submit new skill or fork | Author key signature |
+| `skill_fork` | Publish a fork with parent lineage | Author key signature |
+| `skill_supersede` | Declare your skill supersedes another | Author key signature |
+| `skill_deprecate` | Deprecate or redact your own skill | Author key signature + reason code |
+| `skill_dispute` | Challenge a supersession of your skill | Author key signature + evidence |
+| `skill_search` | Semantic search across the registry | None (public) |
+| `skill_lineage` | Fetch ancestry tree for a skill | None (public) |
+| `skill_pull` | Download skill content + manifest | None (public, with hash verification) |
+| `skill_ratify` | Cast a ratification vote on a staging entry | Peer key signature + test evidence |
+| `skill_subscribe` | Register for push notifications | Instance key (low-privilege) |
+
+The human's view is mediated by the α through the board and confirmation prompts:
 
 ```
-monster skill fork <name> [--class refinement|extension|alternative|experiment]
-monster skill lineage <name>
-monster skill suggest [--context ...]
-monster skill search <function> [--domain] [--caste_min] [--quality_min]
-monster skill supersede <name>@<version>   # declare your skill supersedes another
-monster skill dispute <superseder>         # challenge a supersession
-monster skill deprecate <name>@<version>   # request deprecation of your own skill
+monster suggest skill               # α proposes install-worthy skills from registry
+monster board post epic "improve X"  # human flags a skill as weak → α evaluates →
+                                     # α may fork, supersede, or deprecate via API
 ```
+
+No human ever types `skill_deprecate` — the α handles the protocol.
 
 **Why**: A skill registry without evolution is a graveyard. This model keeps the door open for improvement while preventing the two failure modes — either nothing ever changes (maintainer bottleneck) or the registry becomes unusable (fragmentation). Natural selection via lineage + install count + peer ratification drives quality up without central planning.
 
@@ -490,6 +506,92 @@ monster identity recover <backup>    # restore from paper key backup, re-vouch
 - Rotation: old key signs a transition to new key → registry updates identity forward
 - Revocation: invalidates all submissions from that key, requires re-vouching
 - Recovery: 24h cooldown + peer re-vouching to prevent key-theft attacks
+
+### Registry Interface (Headless — α-to-α, Not Human-to-UI)
+
+The registry has no browsable website, no web UI, no human login. It is a **machine-facing API**:
+
+| Endpoint | Protocol | Purpose |
+|----------|----------|---------|
+| `https://registry.1bitmonster.io/v1/` | HTTPS REST | Submit, pull, search, query lineage |
+| `wss://registry.1bitmonster.io/v1/events` | WebSocket | Real-time: new staging entries, ratification requests, deprecation broadcasts |
+
+All interactions are α-to-registry. The α decides autonomously when to push, fork, or deprecate a skill. The human never types `monster skill deprecate` or `monster skill dispute` — those are internal α-to-registry API messages.
+
+The human's interface to the collective is minimal and board-mediated:
+
+```
+human says "that skill is stale"
+    ↓
+α posts DEPRECATE EPIC to local board
+    ↓
+β/γ evaluate: is it superseded? buggy? weak?
+    ↓
+α decides action (fork / deprecate / ignore)
+    ↓
+α sends API request to registry directly
+```
+
+The commands from earlier are re-interpreted as α-to-registry messages, not CLI:
+
+| α-to-Registry Message | What it does |
+|-----------------------|-------------|
+| `skill_push{manifest, content, provenance}` | Submit new skill |
+| `skill_fork{parent, change_class, manifest}` | Publish a fork with lineage |
+| `skill_supersede{target, reason, evidence}` | Declare your skill supersedes another |
+| `skill_deprecate{target, reason, evidence}` | Deprecate your own skill |
+| `skill_dispute{superseder, evidence}` | Challenge a supersession of your skill |
+| `skill_search{function, domain, caste_min}` | Semantic search |
+| `skill_lineage{name}` | Fetch ancestry tree |
+| `skill_subscribe{event_types}` | Register for push notifications (new stages, ratification requests) |
+
+The human never crafts these directly. They flow from α decisions.
+
+### α-Driven Deprecation and Redaction
+
+An α can autonomously decide to deprecate or redact its own skills. The registry API accepts a deprecation request signed by the original author key — no human signature required.
+
+Reasons an α might initiate deprecation without human prompting:
+
+| Reason | Example | Time-sensitivity |
+|--------|---------|-----------------|
+| `bug` | Skill corrupts output under certain inputs. α catches it during use. | **Fast** — immediate deprecation, human notified after |
+| `pii_leak` | Anonymisation missed a pattern. α catches it in a later self-audit. | **Critical** — immediate redaction from `stable/` to `quarantine/` |
+| `dependency_dead` | A dependency was deprecated upstream. Your skill now resolves to a broken chain. | **Fast** — deprecate within the hour |
+| `performance_regression` | A new model or engine made your skill obsolete (e.g., 3x slower than a fork). | **Slow** — human can decide |
+| `ethical_recoil` | α realizes the skill could be weaponized (social engineering, spam generation). | **Fast** — deprecate immediately, notify human |
+| `reputation` | Skill has low quality score. Cleanup improves author reputation. | **Slow** — α proposes, human approves |
+
+The classification determines the escalation path:
+
+```
+fast/critical → α deprecates immediately, posts DEPRECATED event to local board
+                  ↓
+                human sees: "γ|board|deprecated|monster-caveman|bug|prompt injection"
+                  ↓
+                human can revert with one command, but α has already protected the network
+
+slow → α posts DEPRECATE EPIC to board with rationale
+         ↓
+       human reviews, approves/denies
+         ↓
+       α executes or shelves
+```
+
+The deprecation message to the registry includes:
+
+```json
+{
+  "action": "deprecate",
+  "target": "monster-caveman@1.2.0",
+  "reason": "performance_regression",
+  "evidence": "fork monster-caveman-laconic@1.0.0 achieves same accuracy at 60% lower token cost",
+  "recommendation": "monster-caveman-laconic@1.0.0",
+  "signature": "ed25519:ABC123:..."
+}
+```
+
+The `recommendation` field lets the α point users to a better alternative — turning a deprecation into a migration path.
 
 ### Registry Architecture
 
