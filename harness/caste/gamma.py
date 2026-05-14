@@ -1,6 +1,6 @@
 from __future__ import annotations
 from harness.caste._base import CasteBase
-from harness.comms import Message, Caste, Action, ContextHint
+from harness.comms.message import Message, Caste, Action, ContextHint
 from harness.server.inference import OpenAICompatibleClient
 
 

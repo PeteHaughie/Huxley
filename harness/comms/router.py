@@ -1,12 +1,12 @@
 from __future__ import annotations
-from harness.comms import Message, Caste, Action
-from harness.caste.gamma import Gamma
-from harness.caste.beta import Beta
-from harness.caste.alpha import Alpha
+from harness.comms.message import Message, Caste, Action
 
 
 class Router:
     def __init__(self):
+        from harness.caste.gamma import Gamma
+        from harness.caste.beta import Beta
+        from harness.caste.alpha import Alpha
         self._gamma = Gamma()
         self._beta = Beta()
         self._alpha = Alpha()

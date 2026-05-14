@@ -1,8 +1,9 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
-from harness.comms import Message, Caste
+if TYPE_CHECKING:
+    from harness.comms import Message, Caste
 
 
 class CasteBase(ABC):

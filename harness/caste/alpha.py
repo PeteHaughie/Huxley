@@ -3,16 +3,20 @@ import subprocess
 import time
 import signal
 import os
-import re
+import urllib.request
+import urllib.error
 from pathlib import Path
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from harness.caste._base import CasteBase
-from harness.comms import Message, Caste, Action, ContextHint
-from harness.server.inference import OpenAICompatibleClient
 from harness.config import load_config
+from harness.comms.message import Message, Caste, Action, ContextHint
+
+if TYPE_CHECKING:
+    from harness.server.inference import OpenAICompatibleClient
 
 ALPHA_PORT = int(os.environ.get("MONSTER_ALPHA_PORT", "8081"))
+ALPHA_TIMEOUT = int(os.environ.get("MONSTER_ALPHA_TIMEOUT", "120"))
 
 
 class Alpha(CasteBase):
@@ -25,10 +29,24 @@ class Alpha(CasteBase):
         self._proc: Optional[subprocess.Popen] = None
         self._client: Optional[OpenAICompatibleClient] = None
 
-    def start_server(self) -> Optional[str]:
+    def _endpoint(self) -> str:
+        return f"http://127.0.0.1:{ALPHA_PORT}"
+
+    def _wait_for_server(self, timeout: int = ALPHA_TIMEOUT) -> bool:
+        url = f"{self._endpoint()}/health"
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            try:
+                urllib.request.urlopen(url, timeout=2)
+                return True
+            except (urllib.error.URLError, ConnectionError, OSError):
+                time.sleep(2)
+        return False
+
+    def start_server(self) -> bool:
         acfg = self.cfg["alpha"]
         if self._proc and self._proc.poll() is None:
-            return f"http://127.0.0.1:{ALPHA_PORT}"
+            return True
 
         cmd = [
             "llama-server",
@@ -51,12 +69,9 @@ class Alpha(CasteBase):
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
             )
-            time.sleep(2)
-            if self._proc.poll() is not None:
-                return None
-            return f"http://127.0.0.1:{ALPHA_PORT}"
+            return self._wait_for_server()
         except FileNotFoundError:
-            return None
+            return False
 
     def stop_server(self):
         if self._proc is not None:
@@ -70,16 +85,16 @@ class Alpha(CasteBase):
 
     def client(self) -> OpenAICompatibleClient:
         if self._client is None:
-            self._client = OpenAICompatibleClient(
-                endpoint=f"http://127.0.0.1:{ALPHA_PORT}/v1",
+            from harness.server.inference import OpenAICompatibleClient as _OCC
+            self._client = _OCC(
+                endpoint=f"{self._endpoint()}/v1",
                 model="gemma-4-e4b",
-                timeout=60.0,
+                timeout=120.0,
             )
         return self._client
 
     def infer(self, msg: Message) -> Message:
-        endpoint = self.start_server()
-        if not endpoint:
+        if not self.start_server():
             return Message(
                 caste=Caste.ALPHA,
                 action=Action.INFER,
@@ -109,9 +124,9 @@ class Alpha(CasteBase):
 
     def health(self) -> bool:
         try:
-            if self._client:
-                return self._client.health()
-            return False
+            url = f"{self._endpoint()}/health"
+            urllib.request.urlopen(url, timeout=2)
+            return True
         except Exception:
             return False
 
