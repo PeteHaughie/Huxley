@@ -248,7 +248,7 @@ The Router is shared across ticks — models stay resident, no reload overhead b
 
 Gamma auto-starts Apfel lazily on the first `infer()` call via `ensure_apfel()`. A PID file at `~/.monster/apfeld.pid` tracks ownership: if monster started Apfel, `monster daemon stop` also kills it. If you started Apfel yourself, it is never touched.
 
-## Swarm (LAN Peer Discovery)
+## Swarm (LAN Discovery + Delegation)
 
 Monsters on the same LAN automatically discover each other via **UDP multicast**. Each running `monsterd` broadcasts a heartbeat every 30s to `239.255.43.21:43210` and listens for heartbeats from peers. Peers are marked as lost after 90s of silence.
 
@@ -272,12 +272,61 @@ monster swarm status
 # γ|swarm|status|total=1|active=1
 ```
 
-The peer table is accessible via the daemon control API:
+The peer table and delegation endpoints are accessible via the daemon control API:
 
 | Endpoint | Description |
 |----------|-------------|
 | `GET /v1/swarm/peers` | List known LAN peers |
+| `GET /v1/swarm/peers/all` | List active and stale peers |
 | `GET /v1/swarm/status` | Swarm status (enabled, peer count) |
+| `GET /v1/load` | Current in-progress task count for this daemon |
+| `POST /v1/units/execute` | Execute a single Gamma unit remotely |
+| `POST /v1/tasks/execute` | Execute Beta triage + Gamma units remotely |
+
+### Delegation Model
+
+Borrow/lend is implemented today through the daemon HTTP API. A daemon that owns the local board acts as the **leader** and keeps final ownership of the result, but it can push work to idle peers on the LAN.
+
+1. **Peer discovery** populates the active peer table with caste availability and real load.
+2. **Task-first delegation**: when Gamma is executing a unit that belongs to a parent task, the scheduler first looks for a `βγ` peer and calls `POST /v1/tasks/execute`.
+3. **Unit fallback delegation**: if no suitable `βγ` peer accepts work, the scheduler tries `γ` peers with `POST /v1/units/execute`.
+4. **Selection policy**: peers must satisfy the required castes and `load < swarm.delegation.max_load`; eligible peers are selected in `round_robin` order.
+5. **Result handling**: remote task execution returns `{task_result, units[]}` and those results are written back onto the leader's local board as completed work.
+6. **Local fallback**: if no eligible peer is available, or remote execution fails, execution continues locally.
+
+The current implementation is deliberately simple: LAN-only, no registry, no task-scoped auth tokens, and no remote board claiming. Delegation is request/response over the daemon API rather than a separate borrow contract.
+
+#### Remote execution payloads
+
+`POST /v1/units/execute`
+
+```json
+{"prompt":"Summarise the parser edge cases"}
+```
+
+Response:
+
+```json
+{"result":"..."}
+```
+
+`POST /v1/tasks/execute`
+
+```json
+{"title":"Implement parser fixes","prompt":"Fix the parser and explain the changes"}
+```
+
+Response:
+
+```json
+{
+  "task_result":"## Step 1\n...\n\n## Step 2\n...",
+  "units":[
+    {"title":"Step 1","result":"..."},
+    {"title":"Step 2","result":"..."}
+  ]
+}
+```
 
 ### Config
 
@@ -288,11 +337,15 @@ swarm:
   multicast_port: 43210
   announce_interval: 30
   stale_timeout: 90
+  delegation:
+    enabled: true
+    max_load: 5
+    selection: round_robin
 ```
 
 ### Roadmap (future)
 
-- **Borrow/lend model**: Request idle β/γ capacity from peers via the daemon HTTP API
+- **Delegation hardening**: Add auth, trust, and policy controls around remote execution
 - **Idle consensus**: When all local EPICs are done and peers are idle, form distributed daydream sessions
 - **Auth tokens**: Per-task authentication for remote board access
 

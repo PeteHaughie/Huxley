@@ -610,26 +610,30 @@ registry/
 
 **Goal**: Monsters on the same LAN discover each other and lend idle β/γ capacity. Idle swarms can confer on problems during quiet time.
 
-### Status: Discovery implemented, borrow/lend + idle consensus still future
+### Status: Discovery + borrow/lend delegation implemented, idle consensus still future
 
-**Implemented** — UDP multicast peer discovery with zero deps and zero config. See README for commands.
+**Implemented** — UDP multicast peer discovery with zero deps and zero config, plus HTTP-based remote task/unit execution between daemons. See README for commands and API details.
+
+Current implementation:
+
+### LAN Delegation Model
+
+When local work reaches Gamma execution:
+
+1. The leader daemon checks the peer table for active remote peers that advertise the required castes.
+2. Peers are filtered by `load < swarm.delegation.max_load`.
+3. Eligible peers are selected in round-robin order.
+4. For parent-backed work, the leader prefers `βγ` peers and sends `POST /v1/tasks/execute`.
+5. If that is unavailable, the leader tries `γ` peers with `POST /v1/units/execute`.
+6. Results are written back onto the leader's local board; if remote execution fails, the work runs locally.
 
 Still on the roadmap:
 
-### Distributed Pull Model
-
-When local α has backlogged EPICs and insufficient β/γ:
-
-1. α checks peer table for idle remote β/γ
-2. Sends `borrow_request{caste, task_id, token_budget}` via daemon HTTP API
-3. Remote α evaluates: `load < capacity AND opt_in_help == true`
-4. Response: `borrow_accept{endpoint, auth_token}` or `borrow_deny{reason}`
-5. Local β/γ connects to remote's board REST API to claim/complete tasks
-6. Results flow back through HTTP
+### Delegation Hardening
 
 ### Auth & Trust
 
-- Per-session tokens (UUID4) exchanged on borrow_accept
+- Per-session or per-task tokens for remote execution
 - Token scoped to one task — revoked on complete or timeout
 - All traffic over local subnet only (no WAN routing)
 - Opt-in config: `swarm.enabled: false`, `swarm.duty_bound: true`
@@ -666,19 +670,19 @@ No launchd plist yet — manual start for now.
 
 `monster schedule add|list|remove|history` manages persistent schedules in `~/.monster/scheduler/`. The in-process tick loop within monsterd fires due entries every 5s. Supports `interval`, `daily_at`, `idle`, and `backlog` triggers with `post_to_board` actions. Schedules survive restarts with `missed_behaviour` policy (skip/catch_up/fire_once).
 
-### Swarm Discovery (LAN Peer Discovery)
+### Swarm Discovery & Delegation (LAN Peer Network)
 
 **Status: Implemented.** See README for commands and architecture.
 
-UDP multicast peer discovery — zero deps, zero config. Monsters on the same LAN automatically discover each other and track peer state (caste availability, load, staleness). CLI: `monster swarm peers|status`. API: `GET /v1/swarm/peers|status`.
+UDP multicast peer discovery — zero deps, zero config. Monsters on the same LAN automatically discover each other and track peer state (caste availability, load, staleness). The daemon also supports remote work execution over HTTP. CLI: `monster swarm peers|status`. API: `GET /v1/swarm/peers|status`, `GET /v1/load`, `POST /v1/units/execute`, `POST /v1/tasks/execute`.
 
-Borrow/lend and idle consensus are still future (see section 4 above).
+Idle consensus and stronger auth/policy controls are still future (see section 4 above).
 
 ## Implementation Priority
 
 1. **Daydreaming (Discovery only)** — cheap, passive, feeds curiosity engine
 2. **Session Archaeology** — needs data from monsterd running for a while
-3. **Swarm borrow/lend** — remote β/γ capacity borrowing via daemon HTTP API
+3. **Swarm auth + policy hardening** — secure delegated execution and clearer opt-in semantics
 4. **Swarm idle consensus** — distributed daydream sessions
 5. **Daydreaming (Full pipeline)** — needs archaeology + swarm for distributed compute
 6. **Monster Collective** — needs at least 2+ monsters and 1 ratified skill
