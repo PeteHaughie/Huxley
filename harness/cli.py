@@ -218,6 +218,23 @@ def cmd_swarm(args):
             print("γ|swarm|err|daemon not running", flush=True)
             return
         print(f"γ|swarm|status|total={data.get('peers',0)}|active={data.get('active_peers',0)}", flush=True)
+    elif args.swarm_cmd == "test":
+        from harness.swarm.discovery import test_multicast, get_lan_ip
+        import socket
+        local = get_lan_ip()
+        hostname = socket.gethostname()
+        print(f"γ|swarm|test|hostname={hostname}", flush=True)
+        print(f"γ|swarm|test|lan_ip={local}", flush=True)
+        print(f"γ|swarm|test|multicast=239.255.43.21:43210", flush=True)
+        print(f"γ|swarm|test|running_self_test...", flush=True)
+        r = test_multicast()
+        if r.get("error"):
+            print(f"γ|swarm|test|error={r['error']}", flush=True)
+        else:
+            print(f"γ|swarm|test|send={r['send_ok']}|recv={r['recv_ok']}|loopback={r['loopback']}|interface={r.get('interface','?')}", flush=True)
+        if not r.get("loopback"):
+            print(f"γ|swarm|test|hint|firewall may be blocking UDP to 239.255.43.21:43210", flush=True)
+            print(f"γ|swarm|test|hint|check 'sudo pfctl -s info' or System Settings > Network > Firewall", flush=True)
 
 
 def cmd_schedule(args):
@@ -473,6 +490,7 @@ def main():
     swarm_sub = swarm_p.add_subparsers(dest="swarm_cmd")
     swarm_sub.add_parser("peers", help="List known LAN peers")
     swarm_sub.add_parser("status", help="Show swarm status")
+    swarm_sub.add_parser("test", help="Test multicast connectivity")
 
     args = parser.parse_args()
     if args.command == "init":

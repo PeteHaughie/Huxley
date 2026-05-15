@@ -60,8 +60,19 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             self._send(_scheduler.history(sid))
         elif path == "/v1/swarm/peers":
             self._send([p.to_dict() for p in _peer_table.list_active()])
+        elif path == "/v1/swarm/peers/all":
+            self._send([p.to_dict() for p in _peer_table.list_all()])
         elif path == "/v1/swarm/status":
-            self._send({"enabled": True, "peers": _peer_table.count(), "active_peers": len(_peer_table.list_active())})
+            from harness.swarm.discovery import get_lan_ip
+            import socket
+            self._send({
+                "enabled": True,
+                "hostname": socket.gethostname(),
+                "lan_ip": get_lan_ip(),
+                "port": DAEMON_PORT,
+                "peers": _peer_table.count(),
+                "active_peers": len(_peer_table.list_active()),
+            })
         else:
             self._send({"error": "not found"}, 404)
 

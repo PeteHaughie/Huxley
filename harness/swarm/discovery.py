@@ -42,6 +42,52 @@ def _parse_announce(data: bytes, addr: tuple) -> Optional[dict]:
         return None
 
 
+def get_lan_ip() -> str:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.5)
+        s.connect(("239.255.43.21", 43210))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except OSError:
+        return "127.0.0.1"
+
+
+def test_multicast() -> dict:
+    """Run a self-test of the multicast path. Returns diagnostics."""
+    result = {"loopback": False, "interface": None, "send_ok": False, "recv_ok": False, "error": None}
+    try:
+        local_ip = get_lan_ip()
+        result["interface"] = local_ip
+        recv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        recv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        if hasattr(socket, "SO_REUSEPORT"):
+            recv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        recv.bind(("0.0.0.0", MULTICAST_PORT))
+        mreq = struct.pack("4s4s", socket.inet_aton(MULTICAST_GROUP), socket.inet_aton(local_ip))
+        recv.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        recv.settimeout(3.0)
+        result["recv_ok"] = True
+        send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        send.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        send.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(local_ip))
+        payload = json.dumps({"type": "monster_ping", "hostname": "test", "port": 0}).encode()
+        send.sendto(payload, (MULTICAST_GROUP, MULTICAST_PORT))
+        result["send_ok"] = True
+        try:
+            data, addr = recv.recvfrom(2048)
+            result["loopback"] = True
+            result["loopback_from"] = str(addr)
+        except socket.timeout:
+            result["loopback"] = False
+        recv.close()
+        send.close()
+    except OSError as e:
+        result["error"] = str(e)
+    return result
+
+
 class DiscoveryService:
     def __init__(self, daemon_port: int, peer_table: PeerTable):
         self.daemon_port = daemon_port
@@ -52,7 +98,8 @@ class DiscoveryService:
         self._send_sock: Optional[socket.socket] = None
         self._recv_sock: Optional[socket.socket] = None
         self._hostname = socket.gethostname()
-        self._self_key = f"{self._get_local_ip()}:{daemon_port}"
+        self._local_ip = get_lan_ip()
+        self._self_key = f"{self._local_ip}:{daemon_port}"
 
     def start(self):
         if self._running:
@@ -69,7 +116,7 @@ class DiscoveryService:
         self._send_thread = threading.Thread(target=self._send_loop, daemon=True, name="swarm-send")
         self._recv_thread.start()
         self._send_thread.start()
-        print(f"γ|swarm|start|{MULTICAST_GROUP}:{MULTICAST_PORT}", flush=True)
+        print(f"γ|swarm|start|{MULTICAST_GROUP}:{MULTICAST_PORT}|if={self._local_ip}", flush=True)
 
     def stop(self):
         self._running = False
@@ -90,7 +137,7 @@ class DiscoveryService:
         if hasattr(socket, "SO_REUSEPORT"):
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         s.bind(("0.0.0.0", MULTICAST_PORT))
-        mreq = struct.pack("4sl", socket.inet_aton(MULTICAST_GROUP), socket.INADDR_ANY)
+        mreq = struct.pack("4s4s", socket.inet_aton(MULTICAST_GROUP), socket.inet_aton(self._local_ip))
         s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
         s.settimeout(2.0)
         return s
@@ -98,7 +145,7 @@ class DiscoveryService:
     def _make_send_socket(self) -> socket.socket:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton("0.0.0.0"))
+        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(self._local_ip))
         s.settimeout(1.0)
         return s
 
@@ -122,24 +169,12 @@ class DiscoveryService:
         except OSError:
             pass
 
-    @staticmethod
-    def _get_local_ip() -> str:
-        try:
-            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            s.settimeout(0.5)
-            s.connect(("239.255.43.21", 43210))
-            ip = s.getsockname()[0]
-            s.close()
-            return ip
-        except OSError:
-            return "127.0.0.1"
-
     def _recv_loop(self):
         while self._running:
             try:
                 data, addr = self._recv_sock.recvfrom(BUFFER_SIZE)
                 info = _parse_announce(data, addr)
-                if info and info["addr"] != "127.0.0.1":
+                if info:
                     key = f"{info['addr']}:{info['port']}"
                     if key != self._self_key:
                         self._peers.add(info)
