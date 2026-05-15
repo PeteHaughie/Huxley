@@ -27,12 +27,14 @@ h1 span { color:#6c5ce7; }
 .col { background:#16213e; border-radius:8px; min-width:220px; max-width:260px; flex:1; padding:8px; }
 .col-header { font-size:0.75rem; font-weight:600; text-transform:uppercase; letter-spacing:1px; padding:8px 10px; color:#8888aa; border-bottom:1px solid #2a2a4a; margin-bottom:8px; display:flex; justify-content:space-between; }
 .col-header .count { color:#555; font-size:0.7rem; }
-.card { background:#1e2a4a; border-radius:6px; padding:10px; margin-bottom:6px; cursor:grab; border-left:3px solid #555; transition:background 0.15s, box-shadow 0.15s; }
+.card { background:#1e2a4a; border-radius:6px; padding:10px; margin-bottom:6px; cursor:grab; border-left:3px solid #555; transition:background 0.15s, box-shadow 0.15s; position:relative; }
 .card:hover { background:#25325a; box-shadow:0 2px 8px rgba(0,0,0,0.3); }
 .card.dragging { opacity:0.4; }
 .card .level { font-size:0.65rem; font-weight:700; text-transform:uppercase; letter-spacing:0.5px; margin-bottom:4px; }
 .card .title { font-size:0.8rem; line-height:1.3; }
 .card .meta { font-size:0.65rem; color:#666; margin-top:4px; }
+.card .del { position:absolute; top:4px; right:6px; cursor:pointer; color:#555; font-size:0.8rem; line-height:1; padding:2px 4px; border-radius:3px; }
+.card .del:hover { color:#e74c3c; background:rgba(231,76,60,0.15); }
 .col.drag-over { background:#1c2a50; outline:2px dashed #6c5ce7; }
 .modal { display:none; position:fixed; top:0; left:0; right:0; bottom:0; background:rgba(0,0,0,0.6); z-index:100; justify-content:center; align-items:center; }
 .modal.open { display:flex; }
@@ -117,7 +119,7 @@ function render() {
       card.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", t.id); card.classList.add("dragging"); });
       card.addEventListener("dragend", () => card.classList.remove("dragging"));
       card.addEventListener("click", () => showDetail(t.id));
-      card.innerHTML = `<div class="level" style="color:${LEVEL_COLORS[t.level]}">${t.level}</div><div class="title">${esc(t.title)}</div><div class="meta">${t.caste || "—"} · ${t.id.slice(0,8)}</div>`;
+      card.innerHTML = `<div class="level" style="color:${LEVEL_COLORS[t.level]}">${t.level}</div><div class="title">${esc(t.title)}</div><div class="meta">${t.caste || "—"} · ${t.id.slice(0,8)}</div><span class="del" onclick="event.stopPropagation();deleteTask('${t.id}')">×</span>`;
       col.appendChild(card);
     }
     board.appendChild(col);
@@ -144,6 +146,7 @@ async function showDetail(id) {
     <div class="field"><label>created</label><div style="font-size:0.75rem;color:#888">${t.created}</div></div>
     <div class="field"><label>updated</label><div style="font-size:0.75rem;color:#888">${t.updated}</div></div>
     <div class="btn-row">
+      <button class="btn btn-danger" onclick="deleteTask('${t.id}')">delete</button>
       <button class="btn btn-secondary" onclick="closeModal()">close</button>
     </div>`;
   document.getElementById("modal").classList.add("open");
@@ -174,6 +177,12 @@ async function postTask() {
   await load();
 }
 
+async function deleteTask(id) {
+  if (!confirm("delete this task?")) return;
+  await api("DELETE", "/tasks/" + id);
+  closeModal();
+  await load();
+}
 function closeModal() { document.getElementById("modal").classList.remove("open"); }
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 
