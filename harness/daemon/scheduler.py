@@ -396,11 +396,11 @@ class SchedulerEngine:
 
     def _delegate_to_peer(self, peer_key: str, path: str, body: dict) -> Optional[dict]:
         last_fail = self._peer_failures.get(peer_key, 0.0)
-        if time.time() - last_fail < 30:
+        if time.time() - last_fail < 60:
             return None
         from harness.comms.remote import post_to_peer
         addr, port_str = peer_key.rsplit(":", 1)
-        result = post_to_peer(addr, int(port_str), path, body, timeout=10)
+        result = post_to_peer(addr, int(port_str), path, body, timeout=120)
         if result is None:
             self._peer_failures[peer_key] = time.time()
         return result
