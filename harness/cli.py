@@ -241,7 +241,7 @@ def cmd_swarm(args):
         from harness.swarm.discovery import send_manual_announce, _lan_ips
         import socket
         port = args.port if args.port is not None else 8083
-        send_manual_announce(socket.gethostname(), port)
+        send_manual_announce(socket.gethostname(), port, castes=args.castes or "αβγ")
         print(f"γ|swarm|announce|done|ifaces={_lan_ips()}:{port}", flush=True)
 
 
@@ -541,6 +541,7 @@ def main():
     swarm_sub.add_parser("test", help="Test multicast/broadcast connectivity")
     announce_p = swarm_sub.add_parser("announce", help="Send immediate announce packet")
     announce_p.add_argument("--port", type=int, default=None, help="Daemon port to announce")
+    announce_p.add_argument("--castes", type=str, default=None, help="Castes e.g. βγ (default: αβγ)")
 
     proj_p = sub.add_parser("project", help="Browse completed project artefacts")
     proj_sub = proj_p.add_subparsers(dest="proj_cmd")
