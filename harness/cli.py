@@ -232,7 +232,10 @@ def cmd_swarm(args):
             print(f"γ|swarm|test|error={r['error']}", flush=True)
         else:
             print(f"γ|swarm|test|send={r['send_ok']}|recv={r['recv_ok']}|loopback={r['loopback']}|interface={r.get('interface','?')}", flush=True)
-        if not r.get("loopback"):
+        if r.get("necp_restricted"):
+            print(f"γ|swarm|test|hint|multicast blocked by Tailscale Network Extension (NECP)", flush=True)
+            print(f"γ|swarm|test|hint|swarm will use LAN broadcast as fallback — no action needed", flush=True)
+        elif not r.get("loopback"):
             print(f"γ|swarm|test|hint|firewall may be blocking UDP to 239.255.43.21:43210", flush=True)
             print(f"γ|swarm|test|hint|check 'sudo pfctl -s info' or System Settings > Network > Firewall", flush=True)
 

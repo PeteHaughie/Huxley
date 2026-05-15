@@ -9,6 +9,7 @@ from harness.swarm.peer import PeerTable
 
 MULTICAST_GROUP = "239.255.43.21"
 MULTICAST_PORT = 43210
+BROADCAST_ADDR = "255.255.255.255"
 ANNOUNCE_INTERVAL = 30
 BUFFER_SIZE = 2048
 
@@ -54,6 +55,18 @@ def get_lan_ip() -> str:
         return "127.0.0.1"
 
 
+def _multicast_blocked() -> bool:
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 1)
+        s.bind(("0.0.0.0", 0))
+        s.sendto(b"x", ("239.255.43.21", MULTICAST_PORT))
+        s.close()
+        return False
+    except OSError:
+        return True
+
+
 def test_multicast() -> dict:
     """Run a self-test of the multicast path. Returns diagnostics."""
     result = {"loopback": False, "interface": None, "send_ok": False, "recv_ok": False, "error": None}
@@ -62,8 +75,6 @@ def test_multicast() -> dict:
         result["interface"] = local_ip
         recv = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         recv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if hasattr(socket, "SO_REUSEPORT"):
-            recv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         recv.bind(("0.0.0.0", MULTICAST_PORT))
         mreq = struct.pack("4s4s", socket.inet_aton(MULTICAST_GROUP), socket.inet_aton(local_ip))
         recv.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
@@ -85,6 +96,7 @@ def test_multicast() -> dict:
         send.close()
     except OSError as e:
         result["error"] = str(e)
+    result["necp_restricted"] = _multicast_blocked()
     return result
 
 
@@ -100,11 +112,13 @@ class DiscoveryService:
         self._hostname = socket.gethostname()
         self._local_ip = get_lan_ip()
         self._self_key = f"{self._local_ip}:{daemon_port}"
+        self._use_broadcast = False
 
     def start(self):
         if self._running:
             return
         self._running = True
+        self._use_broadcast = _multicast_blocked()
         try:
             self._recv_sock = self._make_recv_socket()
             self._send_sock = self._make_send_socket()
@@ -112,11 +126,14 @@ class DiscoveryService:
             print(f"γ|swarm|sock_err|{e}", flush=True)
             self._running = False
             return
+        if self._use_broadcast:
+            print(f"γ|swarm|start|broadcast:{MULTICAST_PORT}|if={self._local_ip}", flush=True)
+        else:
+            print(f"γ|swarm|start|{MULTICAST_GROUP}:{MULTICAST_PORT}|if={self._local_ip}", flush=True)
         self._recv_thread = threading.Thread(target=self._recv_loop, daemon=True, name="swarm-recv")
         self._send_thread = threading.Thread(target=self._send_loop, daemon=True, name="swarm-send")
         self._recv_thread.start()
         self._send_thread.start()
-        print(f"γ|swarm|start|{MULTICAST_GROUP}:{MULTICAST_PORT}|if={self._local_ip}", flush=True)
 
     def stop(self):
         self._running = False
@@ -134,18 +151,22 @@ class DiscoveryService:
     def _make_recv_socket(self) -> socket.socket:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        if hasattr(socket, "SO_REUSEPORT"):
-            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         s.bind(("0.0.0.0", MULTICAST_PORT))
-        mreq = struct.pack("4s4s", socket.inet_aton(MULTICAST_GROUP), socket.inet_aton(self._local_ip))
-        s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        try:
+            mreq = struct.pack("4s4s", socket.inet_aton(MULTICAST_GROUP), socket.inet_aton(self._local_ip))
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        except OSError:
+            self._use_broadcast = True
         s.settimeout(2.0)
         return s
 
     def _make_send_socket(self) -> socket.socket:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(self._local_ip))
+        s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        if not self._use_broadcast:
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+            s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(self._local_ip))
         s.settimeout(1.0)
         return s
 
@@ -153,19 +174,20 @@ class DiscoveryService:
         for _ in range(3):
             if not self._running:
                 return
-            self._broadcast()
+            self._announce()
             time.sleep(1)
         while self._running:
-            self._broadcast()
+            self._announce()
             for _ in range(ANNOUNCE_INTERVAL):
                 if not self._running:
                     return
                 time.sleep(1)
 
-    def _broadcast(self):
+    def _announce(self):
         try:
             data = _build_announce(self._hostname, self.daemon_port)
-            self._send_sock.sendto(data, (MULTICAST_GROUP, MULTICAST_PORT))
+            target = (BROADCAST_ADDR, MULTICAST_PORT) if self._use_broadcast else (MULTICAST_GROUP, MULTICAST_PORT)
+            self._send_sock.sendto(data, target)
         except OSError:
             pass
 
