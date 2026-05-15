@@ -128,19 +128,43 @@ def test_multicast() -> dict:
 def send_manual_announce(hostname: str, daemon_port: int):
     ips = _lan_ips()
     data = _build_announce(hostname, daemon_port)
-    s_mcast = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    s_mcast.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-    for ip in ips:
+    try:
+        s_mcast = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    except OSError as e:
+        print(f"γ|swarm|announce|err|mcast_socket|{e}", flush=True)
+        s_mcast = None
+    if s_mcast is not None:
         try:
-            s_mcast.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
-            s_mcast.sendto(data, (MULTICAST_GROUP, MULTICAST_PORT))
-        except OSError:
-            pass
-    s_mcast.close()
-    s_bcast = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    s_bcast.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    s_bcast.sendto(data, ("255.255.255.255", MULTICAST_PORT))
-    s_bcast.close()
+            s_mcast.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+            for ip in ips:
+                try:
+                    s_mcast.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
+                    s_mcast.sendto(data, (MULTICAST_GROUP, MULTICAST_PORT))
+                except OSError:
+                    pass
+        except OSError as e:
+            print(f"γ|swarm|announce|err|mcast_send|{e}", flush=True)
+        finally:
+            try:
+                s_mcast.close()
+            except OSError:
+                pass
+    try:
+        s_bcast = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    except OSError as e:
+        print(f"γ|swarm|announce|err|bcast_socket|{e}", flush=True)
+        s_bcast = None
+    if s_bcast is not None:
+        try:
+            s_bcast.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            s_bcast.sendto(data, ("255.255.255.255", MULTICAST_PORT))
+        except OSError as e:
+            print(f"γ|swarm|announce|err|bcast_send|{e}", flush=True)
+        finally:
+            try:
+                s_bcast.close()
+            except OSError:
+                pass
     print(f"γ|swarm|announce|sent|{MULTICAST_GROUP}:{MULTICAST_PORT}+bcast|ifaces={','.join(ips)}", flush=True)
 
 
