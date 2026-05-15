@@ -381,12 +381,17 @@ class SchedulerEngine:
         print(f"γ|worker|gamma_done|{task.id[:8]}", flush=True)
 
     def _select_peer(self, required_castes: str, max_load: int) -> Optional[str]:
-        candidates = [p for p in _peer_table.list_active()
+        active = _peer_table.list_active()
+        candidates = [p for p in active
                       if all(c in p.castes for c in required_castes)
                       and p.load < max_load]
         if not candidates:
+            print(f"γ|debug|select_peer|req={required_castes}|active={len(active)}|candidates=0", flush=True)
+            for p in active:
+                print(f"γ|debug|select_peer|p={p.addr}:{p.port}|castes={p.castes}|load={p.load}|lost={p.lost}", flush=True)
             return None
         best = min(candidates, key=lambda p: p.load)
+        print(f"γ|debug|select_peer|selected={best.addr}:{best.port}", flush=True)
         return f"{best.addr}:{best.port}"
 
     def _delegate_to_peer(self, peer_key: str, path: str, body: dict) -> Optional[dict]:
