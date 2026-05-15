@@ -29,7 +29,7 @@ _VALID_TRANSITIONS: dict[State, set[State]] = {
     State.READY: {State.IN_PROGRESS, State.BLOCKED, State.ARCHIVED},
     State.IN_PROGRESS: {State.DONE, State.BLOCKED, State.READY},
     State.BLOCKED: {State.READY, State.ARCHIVED},
-    State.DONE: {State.ARCHIVED, State.READY},
+    State.DONE: {State.BACKLOG, State.READY, State.ARCHIVED},
     State.ARCHIVED: set(),
 }
 
