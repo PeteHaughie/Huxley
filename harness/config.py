@@ -96,6 +96,8 @@ def load_config() -> dict:
         return DEFAULT_CONFIG
     with open(DEFAULT_CONFIG_PATH) as f:
         cfg = yaml.safe_load(f) or {}
+    if _repair_legacy_model_aliases(cfg):
+        save_config(cfg)
     merged = _deep_merge_dicts(DEFAULT_CONFIG, cfg)
     _resolve_model_paths(merged)
     return merged
@@ -130,6 +132,22 @@ def _resolve_model_paths(cfg: dict):
         val = cfg.get(section, {}).get(key)
         if val and val.startswith("~"):
             cfg[section][key] = resolve_path(val)
+
+
+def _repair_legacy_model_aliases(cfg: dict) -> bool:
+    repaired = False
+    for section, keys in {
+        "alpha": ("model", "draft_model"),
+        "beta": ("model", "fallback_model"),
+    }.items():
+        section_cfg = cfg.get(section)
+        if not isinstance(section_cfg, dict):
+            continue
+        for key in keys:
+            if section_cfg.get(key) == "apple-foundationmodel":
+                section_cfg[key] = DEFAULT_CONFIG[section][key]
+                repaired = True
+    return repaired
 
 
 def save_config(cfg: dict):
