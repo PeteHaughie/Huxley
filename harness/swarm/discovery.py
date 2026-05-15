@@ -2,6 +2,7 @@ import json
 import socket
 import struct
 import time
+import uuid
 import threading
 from typing import Optional
 
@@ -13,7 +14,7 @@ ANNOUNCE_INTERVAL = 30
 BUFFER_SIZE = 2048
 
 
-def _build_announce(hostname: str, daemon_port: int, castes: str = "αβγ", load: float = 0.0, version: str = "0.1.0") -> bytes:
+def _build_announce(hostname: str, daemon_port: int, castes: str = "αβγ", load: float = 0.0, version: str = "0.1.0", instance_id: str = "") -> bytes:
     payload = {
         "type": "monster_announce",
         "hostname": hostname,
@@ -21,6 +22,7 @@ def _build_announce(hostname: str, daemon_port: int, castes: str = "αβγ", loa
         "castes": castes,
         "load": load,
         "version": version,
+        "instance_id": instance_id,
     }
     return json.dumps(payload, ensure_ascii=False).encode()
 
@@ -37,6 +39,7 @@ def _parse_announce(data: bytes, addr: tuple) -> Optional[dict]:
             "castes": payload.get("castes", ""),
             "load": payload.get("load", 0.0),
             "version": payload.get("version", "0.0.0"),
+            "instance_id": payload.get("instance_id", ""),
         }
     except (json.JSONDecodeError, UnicodeDecodeError):
         return None
@@ -125,9 +128,9 @@ def test_multicast() -> dict:
     return r
 
 
-def send_manual_announce(hostname: str, daemon_port: int):
+def send_manual_announce(hostname: str, daemon_port: int, castes: str = "αβγ", instance_id: str = ""):
     ips = _lan_ips()
-    data = _build_announce(hostname, daemon_port)
+    data = _build_announce(hostname, daemon_port, castes=castes, instance_id=instance_id)
     def _send_with_socket(label: str, send_fn) -> int:
         try:
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
@@ -174,8 +177,7 @@ class DiscoveryService:
         self._sock: Optional[socket.socket] = None
         self._hostname = socket.gethostname()
         self._local_ips = _lan_ips()
-        primary = self._local_ips[0] if self._local_ips else "127.0.0.1"
-        self._self_keys = {f"{ip}:{daemon_port}" for ip in self._local_ips}
+        self._instance_id = uuid.uuid4().hex[:12]
 
     def start(self):
         if self._running:
@@ -246,7 +248,7 @@ class DiscoveryService:
         except Exception:
             load = 0.0
         try:
-            data = _build_announce(self._hostname, self.daemon_port, load=load)
+            data = _build_announce(self._hostname, self.daemon_port, load=load, instance_id=self._instance_id)
             for ip in self._local_ips:
                 try:
                     self._sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
@@ -262,10 +264,8 @@ class DiscoveryService:
             try:
                 data, addr = self._sock.recvfrom(BUFFER_SIZE)
                 info = _parse_announce(data, addr)
-                if info:
-                    key = f"{info['addr']}:{info['port']}"
-                    if key not in self._self_keys:
-                        self._peers.add(info)
+                if info and info.get("instance_id", "") != self._instance_id:
+                    self._peers.add(info)
             except socket.timeout:
                 continue
             except OSError:
