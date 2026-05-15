@@ -128,44 +128,40 @@ def test_multicast() -> dict:
 def send_manual_announce(hostname: str, daemon_port: int):
     ips = _lan_ips()
     data = _build_announce(hostname, daemon_port)
-    try:
-        s_mcast = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    except OSError as e:
-        print(f"γ|swarm|announce|err|mcast_socket|{e}", flush=True)
-        s_mcast = None
-    if s_mcast is not None:
+    def _send_with_socket(label: str, send_fn) -> int:
         try:
-            s_mcast.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-            for ip in ips:
-                try:
-                    s_mcast.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
-                    s_mcast.sendto(data, (MULTICAST_GROUP, MULTICAST_PORT))
-                except OSError:
-                    pass
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         except OSError as e:
-            print(f"γ|swarm|announce|err|mcast_send|{e}", flush=True)
+            print(f"γ|swarm|announce|err|{label}_socket|{e}", flush=True)
+            return 0
+        try:
+            return send_fn(sock)
+        except OSError as e:
+            print(f"γ|swarm|announce|err|{label}_send|{e}", flush=True)
+            return 0
         finally:
+            sock.close()
+
+    def _send_mcast(sock: socket.socket) -> int:
+        sent = 0
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
+        for ip in ips:
             try:
-                s_mcast.close()
+                sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
+                sock.sendto(data, (MULTICAST_GROUP, MULTICAST_PORT))
+                sent += 1
             except OSError:
                 pass
-    try:
-        s_bcast = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    except OSError as e:
-        print(f"γ|swarm|announce|err|bcast_socket|{e}", flush=True)
-        s_bcast = None
-    if s_bcast is not None:
-        try:
-            s_bcast.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            s_bcast.sendto(data, ("255.255.255.255", MULTICAST_PORT))
-        except OSError as e:
-            print(f"γ|swarm|announce|err|bcast_send|{e}", flush=True)
-        finally:
-            try:
-                s_bcast.close()
-            except OSError:
-                pass
-    print(f"γ|swarm|announce|sent|{MULTICAST_GROUP}:{MULTICAST_PORT}+bcast|ifaces={','.join(ips)}", flush=True)
+        return sent
+
+    def _send_bcast(sock: socket.socket) -> int:
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sock.sendto(data, ("255.255.255.255", MULTICAST_PORT))
+        return 1
+
+    sent = _send_with_socket("mcast", _send_mcast) + _send_with_socket("bcast", _send_bcast)
+    status = "sent" if sent > 0 else "attempted"
+    print(f"γ|swarm|announce|{status}|{MULTICAST_GROUP}:{MULTICAST_PORT}+bcast|ifaces={','.join(ips)}", flush=True)
 
 
 class DiscoveryService:
