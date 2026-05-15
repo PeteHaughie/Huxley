@@ -10,7 +10,7 @@ class Gamma(CasteBase):
     def __init__(self, cfg: dict | None = None):
         from harness.config import load_config
         _cfg = cfg or load_config().get("gamma", {})
-        endpoint = _cfg.get("endpoint", "http://localhost:11434/v1")
+        endpoint = _cfg.get("endpoint", "http://127.0.0.1:11434/v1")
         model = _cfg.get("model", "apple-foundationmodel")
         timeout = _cfg.get("timeout", 15.0)
         self.client = OpenAICompatibleClient(endpoint=endpoint, model=model, timeout=timeout)
