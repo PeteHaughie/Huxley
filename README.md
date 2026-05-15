@@ -323,19 +323,14 @@ monster compact --caste b
 git clone git@github.com:PeteHaughie/monster.git
 cd monster
 
-# Install core dependencies
-pip install pyyaml httpx uuid7
-
-# Install optional dependencies for additional features
-pip install chromadb          # vector memory
-pip install mlx-lm            # Beta caste (Bonsai Ternary)
-pip install llama-cpp-python  # Alpha caste (Gemma 4)
+# Install the package and all dependencies
+pip install -e .
 
 # (Optional) Start Apfel for Gamma caste
 apfel --serve
 
 # Initialise the harness
-python -m harness init
+monster init
 ```
 
 ## Quick Start
