@@ -27,7 +27,7 @@ class State(str, Enum):
 _VALID_TRANSITIONS: dict[State, set[State]] = {
     State.BACKLOG: {State.READY, State.BLOCKED, State.ARCHIVED},
     State.READY: {State.IN_PROGRESS, State.BLOCKED, State.ARCHIVED},
-    State.IN_PROGRESS: {State.DONE, State.BLOCKED, State.READY},
+    State.IN_PROGRESS: {State.DONE, State.BLOCKED, State.READY, State.BACKLOG},
     State.BLOCKED: {State.READY, State.ARCHIVED},
     State.DONE: {State.BACKLOG, State.READY, State.ARCHIVED},
     State.ARCHIVED: set(),

@@ -63,12 +63,13 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/v1/swarm/peers/all":
             self._send([p.to_dict() for p in _peer_table.list_all()])
         elif path == "/v1/swarm/status":
-            from harness.swarm.discovery import get_lan_ip
+            from harness.swarm.discovery import _lan_ips
             import socket
+            ips = _lan_ips()
             self._send({
                 "enabled": True,
                 "hostname": socket.gethostname(),
-                "lan_ip": get_lan_ip(),
+                "lan_ip": ips[0] if ips else "?",
                 "port": DAEMON_PORT,
                 "peers": _peer_table.count(),
                 "active_peers": len(_peer_table.list_active()),

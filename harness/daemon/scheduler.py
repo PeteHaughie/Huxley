@@ -236,29 +236,152 @@ class SchedulerEngine:
                 continue
             print(f"γ|worker|claim|{t.id[:8]}|{level.value}|{t.title[:40]}", flush=True)
             try:
-                result = self._execute(t)
-                board.complete(t.id, result)
-                print(f"γ|worker|done|{t.id[:8]}|{level.value}", flush=True)
+                self._route_work(t, board)
             except Exception as e:
                 print(f"γ|worker|err|{t.id[:8]}|{e}", flush=True)
                 board.complete(t.id, f"error: {e}")
             return
+        self._escalation_check(board)
 
-    def _execute(self, task: Task) -> str:
+    def _route_work(self, task: Task, board: JobBoard):
+        level = task.level
+        if level == Level.EPIC:
+            self._alpha_breakdown(task, board)
+        elif level == Level.TASK:
+            if board.children_of(task.id):
+                self._beta_review(task, board)
+            else:
+                self._beta_triage(task, board)
+        elif level == Level.UNIT:
+            self._gamma_execute(task, board)
+
+    def _infer(self, prompt: str, level: str, max_output: int = 512) -> str:
         from harness.comms import Message, Caste, Action
         from harness.comms.router import Router
         if self._router is None:
             self._router = Router()
+        caste_map = {"epic": Caste.ALPHA, "task": Caste.BETA, "unit": Caste.GAMMA}
         msg = Message(
-            caste={"epic": Caste.ALPHA, "task": Caste.BETA, "unit": Caste.GAMMA}[task.level.value],
+            caste=caste_map[level],
             action=Action.INFER,
-            payload={"prompt": task.prompt or task.title},
+            payload={"prompt": prompt},
+            token_budget={"input": 4096, "output": max_output},
         )
         resp = self._router.dispatch(msg)
-        payload = resp.payload
-        if "error" in payload:
-            raise RuntimeError(payload["error"])
-        return payload.get("result", "")
+        if "error" in resp.payload:
+            raise RuntimeError(resp.payload["error"])
+        return resp.payload.get("result", "")
+
+    def _parse_bullets(self, text: str) -> list[str]:
+        import re
+        text = text.strip()
+        text = re.sub(r"^(Here['´`]s|I['´`]ll|Let me|I need to|I should|The user|The request|Ok,? let).*\n\n", "", text, flags=re.MULTILINE)
+        lines = [l.strip() for l in text.split("\n") if l.strip()]
+        bullets = []
+        for line in lines:
+            stripped = re.sub(r"^[\s*•\-‣⁃◦⦿⟹→]+|\d+[\.\)]\s*", "", line).strip()
+            if not stripped or len(stripped) < 15:
+                continue
+            if re.match(r"^[A-Za-z]", stripped):
+                bullets.append(stripped)
+            elif bullets and len(stripped) > 10:
+                bullets[-1] += " " + stripped
+            elif len(stripped) > 25:
+                bullets.append(stripped)
+        if not bullets and len(text) > 20:
+            bullets = [text]
+        return bullets
+
+    def _alpha_breakdown(self, task: Task, board: JobBoard):
+        prompt = (
+            f"You are breaking down a project request into sub-tasks.\n"
+            f"Request: {task.prompt or task.title}\n\n"
+            f"Output a numbered list of 3-6 specific, actionable sub-tasks. "
+            f"Each sub-task should be a self-contained research or development task. "
+            f"Output ONLY the numbered list, one per line."
+        )
+        result = self._infer(prompt, Level.EPIC.value, max_output=1024)
+        bullets = self._parse_bullets(result)
+        if not bullets or len(bullets) < 2:
+            board.complete(task.id, result)
+            print(f"γ|worker|alpha_done|{task.id[:8]}|direct|no bullets", flush=True)
+            return
+        for bullet in bullets:
+            board.create(Task(level=Level.TASK, title=bullet[:80], prompt=bullet, parent_id=task.id))
+        print(f"γ|worker|alpha|{task.id[:8]}|{len(bullets)} tasks", flush=True)
+
+    def _beta_triage(self, task: Task, board: JobBoard):
+        prompt = (
+            f"Break this task into concrete research steps:\n"
+            f"Task: {task.prompt or task.title}\n\n"
+            f"Output a numbered list of 2-4 specific research or implementation steps. "
+            f"Each step must be a single, actionable item that can be executed independently. "
+            f"Output ONLY the numbered list, one per line."
+        )
+        result = self._infer(prompt, Level.TASK.value)
+        steps = self._parse_bullets(result)
+        if not steps or len(steps) < 2:
+            board.complete(task.id, result)
+            print(f"γ|worker|beta_triage_done|{task.id[:8]}|direct", flush=True)
+            return
+        for step in steps:
+            board.create(Task(level=Level.UNIT, title=step[:80], prompt=step, parent_id=task.id))
+        print(f"γ|worker|beta_triage|{task.id[:8]}|{len(steps)} units", flush=True)
+
+    def _gamma_execute(self, task: Task, board: JobBoard):
+        result = self._infer(task.prompt or task.title, Level.UNIT.value)
+        board.complete(task.id, result)
+        print(f"γ|worker|gamma_done|{task.id[:8]}", flush=True)
+
+    def _beta_review(self, task: Task, board: JobBoard):
+        children = board.children_of(task.id)
+        done = [c for c in children if c.state == State.DONE]
+        if len(done) < len(children):
+            return
+        compiled = "\n\n".join(
+            f"## {c.title}\n{c.result or '(no result)'}" for c in done
+        )
+        review_prompt = (
+            f"Review these completed sub-tasks for the task: {task.title}\n\n"
+            f"{compiled}\n\n"
+            f"Start your response with exactly ACCEPT if all are satisfactory, or REJECT if any need rework."
+        )
+        review = self._infer(review_prompt, Level.TASK.value, max_output=512)
+        upper = review.strip().upper()
+        if upper.startswith("ACCEPT"):
+            final = review[len("ACCEPT"):].strip().lstrip(":").strip()
+            board.complete(task.id, final or compiled)
+            print(f"γ|worker|beta_review_accept|{task.id[:8]}", flush=True)
+        else:
+            rejected = [c for c in done if c.title.split()[0].lower() in review.lower()]
+            if not rejected:
+                rejected = done[:1]
+            for c in rejected:
+                c.transition(State.BACKLOG)
+                board.update(c)
+            print(f"γ|worker|beta_review_reject|{task.id[:8]}|{len(rejected)} rework", flush=True)
+
+    def _escalation_check(self, board: JobBoard):
+        for task in board.list(level=Level.TASK, state=State.IN_PROGRESS):
+            children = board.children_of(task.id)
+            if not children:
+                continue
+            done = [c for c in children if c.state == State.DONE]
+            if len(done) == len(children):
+                task.transition(State.READY)
+                board.update(task)
+                print(f"γ|worker|escalate|{task.id[:8]}|task→ready", flush=True)
+        for task in board.list(level=Level.EPIC, state=State.IN_PROGRESS):
+            children = board.children_of(task.id)
+            if not children:
+                continue
+            done = [c for c in children if c.state == State.DONE]
+            if len(done) == len(children):
+                compiled = "\n\n".join(
+                    f"## {c.title}\n{c.result or '(no result)'}" for c in done
+                )
+                board.complete(task.id, compiled)
+                print(f"γ|worker|escalate|{task.id[:8]}|epic→done", flush=True)
 
     def _tick(self):
         board = JobBoard()
