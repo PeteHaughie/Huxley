@@ -253,11 +253,11 @@ Gamma auto-starts Apfel lazily on the first `infer()` call via `ensure_apfel()`.
 Monsters on the same LAN automatically discover each other via **UDP multicast**. Each running `monsterd` broadcasts a heartbeat every 30s to `239.255.43.21:43210` and listens for heartbeats from peers. Peers are marked as lost after 90s of silence.
 
 ```
-┌─────────────────┐        UDP multicast         ┌─────────────────┐
-│ monsterd (M2 Pro)│ ◄───── 239.255.43.21 ──────► │ monsterd (M5)   │
+┌──────────────────┐        UDP multicast          ┌─────────────────┐
+│ monsterd (M2 Pro)│ ◄───── 239.255.43.21 ───────► │ monsterd (M5)   │
 │ port 8083        │                               │ port 8083       │
 │ castes: αβγ      │                               │ castes: αγ      │
-└─────────────────┘                               └─────────────────┘
+└──────────────────┘                               └─────────────────┘
 ```
 
 Discovery is **zero-config** — no registry, no configuration, no external dependencies. If two daemons are on the same LAN, they find each other automatically.

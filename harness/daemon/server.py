@@ -7,7 +7,7 @@ from harness.daemon.scheduler import SchedulerEngine, Schedule, _ensure_schedule
 
 DAEMON_PORT = int(os.environ.get("MONSTERD_PORT", "8083"))
 
-_scheduler = SchedulerEngine()
+_scheduler = SchedulerEngine(daemon_port=DAEMON_PORT)
 
 
 class DaemonHandler(http.server.BaseHTTPRequestHandler):

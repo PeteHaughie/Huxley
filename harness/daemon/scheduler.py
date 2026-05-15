@@ -150,8 +150,9 @@ _peer_table = PeerTable()
 
 
 class SchedulerEngine:
-    def __init__(self, tick_interval: int = 5):
+    def __init__(self, tick_interval: int = 5, daemon_port: Optional[int] = None):
         self.tick_interval = tick_interval
+        self._daemon_port = daemon_port
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._router: Any = None
@@ -170,8 +171,8 @@ class SchedulerEngine:
         self._running = True
         cfg = load_config()
         if cfg.get("swarm", {}).get("enabled", True):
-            daemon_port = cfg.get("daemon", {}).get("port", 8083)
-            self._discovery = DiscoveryService(daemon_port, _peer_table)
+            port = self._daemon_port or cfg.get("daemon", {}).get("port", 8083)
+            self._discovery = DiscoveryService(port, _peer_table)
             self._discovery.start()
         self._thread = threading.Thread(target=self._tick_loop, daemon=True)
         self._thread.start()

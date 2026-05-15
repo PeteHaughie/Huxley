@@ -87,11 +87,9 @@ class DiscoveryService:
     def _make_recv_socket(self) -> socket.socket:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        s.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
-        try:
-            s.bind(("0.0.0.0", MULTICAST_PORT))
-        except OSError:
-            s.bind(("0.0.0.0", 0))
+        if hasattr(socket, "SO_REUSEPORT"):
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        s.bind(("0.0.0.0", MULTICAST_PORT))
         mreq = struct.pack("4sl", socket.inet_aton(MULTICAST_GROUP), socket.INADDR_ANY)
         s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
         s.settimeout(2.0)
@@ -105,16 +103,24 @@ class DiscoveryService:
         return s
 
     def _send_loop(self):
+        for _ in range(3):
+            if not self._running:
+                return
+            self._broadcast()
+            time.sleep(1)
         while self._running:
-            try:
-                data = _build_announce(self._hostname, self.daemon_port)
-                self._send_sock.sendto(data, (MULTICAST_GROUP, MULTICAST_PORT))
-            except OSError:
-                pass
+            self._broadcast()
             for _ in range(ANNOUNCE_INTERVAL):
                 if not self._running:
                     return
                 time.sleep(1)
+
+    def _broadcast(self):
+        try:
+            data = _build_announce(self._hostname, self.daemon_port)
+            self._send_sock.sendto(data, (MULTICAST_GROUP, MULTICAST_PORT))
+        except OSError:
+            pass
 
     @staticmethod
     def _get_local_ip() -> str:
