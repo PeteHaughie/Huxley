@@ -160,6 +160,7 @@ class SchedulerEngine:
         self._action_handlers: dict[str, Callable] = {
             "post_to_board": self._action_post_to_board,
         }
+        self._peer_failures: dict[str, float] = {}
 
     @property
     def running(self) -> bool:
@@ -389,9 +390,15 @@ class SchedulerEngine:
         return f"{best.addr}:{best.port}"
 
     def _delegate_to_peer(self, peer_key: str, path: str, body: dict) -> Optional[dict]:
+        last_fail = self._peer_failures.get(peer_key, 0.0)
+        if time.time() - last_fail < 30:
+            return None
         from harness.comms.remote import post_to_peer
         addr, port_str = peer_key.rsplit(":", 1)
-        return post_to_peer(addr, int(port_str), path, body)
+        result = post_to_peer(addr, int(port_str), path, body, timeout=10)
+        if result is None:
+            self._peer_failures[peer_key] = time.time()
+        return result
 
     def _compile_project_files(self, epic: Task, board: JobBoard, proj_dir: Path):
         import re
