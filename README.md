@@ -313,7 +313,7 @@ monster compact --caste b
 - **Apple Silicon** (M1+)
 - **Python 3.11+**
 - **Apfel** — `brew install apfel` (for Gamma caste)
-- **Optional**: MLX (`pip install mlx-lm`) for Beta caste
+- **MLX** (`pip install mlx-lm`) for Beta caste
 - **Optional**: llama.cpp with Gemma 4 GGUF + TurboQuant for Alpha caste
 
 ## Installation
