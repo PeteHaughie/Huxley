@@ -333,6 +333,46 @@ class SchedulerEngine:
         board.complete(task.id, result)
         print(f"γ|worker|gamma_done|{task.id[:8]}", flush=True)
 
+    def _compile_project_files(self, epic: Task, board: JobBoard, proj_dir: Path):
+        import re
+        summary = (epic.result or "")[:4000]
+        prompt = (
+            f"Generate the actual project files for this completed project.\n"
+            f"Project: {epic.title}\n"
+            f"Request: {epic.prompt}\n\n"
+            f"Research summary:\n{summary}\n\n"
+            f"Output each file as:\n"
+            f"--- FILE: path/to/filename.ext\n"
+            f"<file contents>\n"
+            f"---\n"
+            f"Generate real, working code. Include README.md. Output ONLY the file blocks."
+        )
+        try:
+            result = self._infer(prompt, Level.EPIC.value, max_output=4096)
+        except Exception as e:
+            print(f"γ|worker|compile_err|{epic.id[:8]}|{e}", flush=True)
+            return
+        blocks = re.split(r'^---\s+FILE:\s+', result, flags=re.MULTILINE)
+        written = 0
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+            first_line = block.split('\n', 1)[0].strip()
+            content = block.split('\n', 1)[1] if '\n' in block else ''
+            if not first_line or not content:
+                continue
+            fpath = proj_dir / first_line
+            fpath.parent.mkdir(parents=True, exist_ok=True)
+            clean = content.strip()
+            clean = re.sub(r'^```\w*\n', '', clean)
+            clean = re.sub(r'\n```\s*$', '', clean)
+            fpath.write_text(clean)
+            written += 1
+            print(f"γ|worker|compile_file|{fpath.name}", flush=True)
+        if written > 0:
+            print(f"γ|worker|compile_ok|{epic.id[:8]}|{written} files|{proj_dir}", flush=True)
+
     def _beta_review(self, task: Task, board: JobBoard):
         children = board.children_of(task.id)
         done = [c for c in children if c.state == State.DONE]
@@ -400,6 +440,7 @@ class SchedulerEngine:
                 proj_dir = archive_epic(epic, board)
                 epic.tags.append(f"project:{proj_dir.name}")
                 board.update(epic)
+                self._compile_project_files(epic, board, proj_dir)
                 print(f"γ|worker|escalate|{task.id[:8]}|epic→done|project={proj_dir.name}", flush=True)
 
     def _tick(self):
