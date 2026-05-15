@@ -446,13 +446,9 @@ class SchedulerEngine:
         if len(done) < len(children):
             return
         review_attempts = task.tags.count("reviewed") + 1
-        if review_attempts >= 3:
-            compiled = "\n\n".join(
-                f"## {c.title}\n{c.result or '(no result)'}" for c in done
-            )
-            board.complete(task.id, compiled)
-            print(f"γ|worker|beta_review_force|{task.id[:8]}|auto-accept after {review_attempts}", flush=True)
-            return
+        refined_count = task.tags.count("refined")
+        MAX_REVIEW = 5
+        MAX_REFINE = 5
         compiled = "\n\n".join(
             f"## {c.title}\n{c.result or '(no result)'}" for c in done
         )
@@ -467,7 +463,8 @@ class SchedulerEngine:
             final = review[len("ACCEPT"):].strip().lstrip(":").strip()
             board.complete(task.id, final or compiled)
             print(f"γ|worker|beta_review_accept|{task.id[:8]}", flush=True)
-        else:
+            return
+        if review_attempts < MAX_REVIEW:
             task.tags = task.tags + ["reviewed"]
             board.update(task)
             rejected = [c for c in done if c.title.split()[0].lower() in review.lower()]
@@ -479,6 +476,33 @@ class SchedulerEngine:
                 c.transition(State.BACKLOG)
                 board.update(c)
             print(f"γ|worker|beta_review_reject|{task.id[:8]}|{len(rejected)} rework|attempt={review_attempts}", flush=True)
+            return
+        if refined_count >= MAX_REFINE:
+            board.block(task.id, f"Failed after {review_attempts} reviews and {refined_count} refinements. Needs human intervention.")
+            print(f"γ|worker|beta_blocked|{task.id[:8]}|{MAX_REFINE} refinements exhausted|needs human intervention", flush=True)
+            return
+        for c in children:
+            board.delete(c.id)
+        board.block(task.id)
+        refine_prompt = (
+            f"The previous decomposition of this task was rejected after {review_attempts} review attempts.\n"
+            f"Latest review feedback: {review[:400].strip()}\n\n"
+            f"Re-analyze this task and break it into narrower, more specific, and more clearly defined research steps:\n"
+            f"Task: {task.prompt or task.title}\n\n"
+            f"Output a numbered list of 2-4 concrete steps that are each independently achievable. "
+            f"Each step must be more precisely scoped than the previous attempt. "
+            f"Output ONLY the numbered list, one per line."
+        )
+        result = self._infer(refine_prompt, Level.TASK.value)
+        steps = self._parse_bullets(result)
+        if not steps or len(steps) < 2:
+            steps = [f"{task.prompt or task.title} (step 1)"]
+        for step in steps:
+            board.create(Task(level=Level.UNIT, title=step[:80], prompt=step, parent_id=task.id))
+        task.tags = [t for t in task.tags if t != "reviewed"] + ["refined"]
+        task.transition(State.IN_PROGRESS)
+        board.update(task)
+        print(f"γ|worker|beta_refine|{task.id[:8]}|{len(steps)} units after {review_attempts} rejections|refined={refined_count + 1}", flush=True)
 
     def _escalation_check(self, board: JobBoard):
         for task in board.list(level=Level.TASK, state=State.IN_PROGRESS):
