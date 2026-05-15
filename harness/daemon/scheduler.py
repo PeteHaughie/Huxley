@@ -371,6 +371,10 @@ class SchedulerEngine:
             if peer:
                 resp = self._delegate_to_peer(peer, "/v1/units/execute",
                                               {"prompt": task.prompt or task.title})
+                if resp is None:
+                    print(f"γ|debug|delegate|{peer}|resp=None", flush=True)
+                else:
+                    print(f"γ|debug|delegate|{peer}|resp_keys={list(resp.keys())}", flush=True)
                 if resp and "result" in resp:
                     board.complete(task.id, resp["result"])
                     print(f"γ|worker|delegate|{peer}|{task.id[:8]}|unit", flush=True)
