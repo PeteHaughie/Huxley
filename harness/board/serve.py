@@ -56,6 +56,7 @@ h1 span { color:#6c5ce7; }
 .toolbar .status { font-size:0.75rem; color:#555; margin-left:auto; }
 .prompt { font-size:0.8rem; color:#aaa; background:#1a1a2e; padding:8px; border-radius:4px; margin:8px 0; white-space:pre-wrap; }
 .result { font-size:0.8rem; color:#00b894; background:#1a2a1e; padding:8px; border-radius:4px; margin:8px 0; white-space:pre-wrap; }
+.result-preview { font-size:0.7rem; color:#00b894; background:#1a2a1e; padding:4px 6px; border-radius:3px; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
 .id { font-size:0.65rem; color:#555; font-family:monospace; }
 </style>
 </head>
@@ -119,7 +120,7 @@ function render() {
       card.addEventListener("dragstart", e => { e.dataTransfer.setData("text/plain", t.id); card.classList.add("dragging"); });
       card.addEventListener("dragend", () => card.classList.remove("dragging"));
       card.addEventListener("click", () => showDetail(t.id));
-      card.innerHTML = `<div class="level" style="color:${LEVEL_COLORS[t.level]}">${t.level}</div><div class="title">${esc(t.title)}</div><div class="meta">${t.caste || "—"} · ${t.id.slice(0,8)}</div><span class="del" onclick="event.stopPropagation();deleteTask('${t.id}')">×</span>`;
+      card.innerHTML = `<div class="level" style="color:${LEVEL_COLORS[t.level]}">${t.level}</div><div class="title">${esc(t.title)}</div>${t.result && t.state==="done" ? `<div class="result-preview">${esc(t.result.slice(0,80))}${t.result.length>80?"…":""}</div>` : ""}<div class="meta">${t.caste || "—"} · ${t.id.slice(0,8)}</div><span class="del" onclick="event.stopPropagation();deleteTask('${t.id}')">×</span>`;
       col.appendChild(card);
     }
     board.appendChild(col);
