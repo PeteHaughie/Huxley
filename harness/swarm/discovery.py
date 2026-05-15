@@ -45,18 +45,10 @@ def _parse_announce(data: bytes, addr: tuple) -> Optional[dict]:
         return None
 
 
-def _lan_ips() -> list[str]:
-    ips = []
-    try:
-        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.settimeout(0.5)
-        s.connect(("239.255.43.21", 43210))
-        default = s.getsockname()[0]
-        s.close()
-        if default != "127.0.0.1":
-            ips.append(default)
-    except OSError:
-        pass
+def _lan_interfaces() -> list[dict]:
+    """Return list of {ip, bcast} for non-loopback interfaces with an IPv4 addr."""
+    ifaces = []
+    seen = set()
     try:
         import subprocess
         r = subprocess.run(["ifconfig", "-l"], capture_output=True, text=True, timeout=3)
@@ -65,12 +57,34 @@ def _lan_ips() -> list[str]:
             for line in r2.stdout.splitlines():
                 line = line.strip()
                 if line.startswith("inet ") and "127.0.0.1" not in line:
-                    ip = line.split()[1]
-                    if ip not in ips:
-                        ips.append(ip)
+                    parts = line.split()
+                    ip = parts[1]
+                    if ip in seen:
+                        continue
+                    seen.add(ip)
+                    entry = {"ip": ip}
+                    for i, p in enumerate(parts):
+                        if p == "broadcast" and i + 1 < len(parts):
+                            entry["bcast"] = parts[i + 1]
+                    ifaces.append(entry)
     except Exception:
         pass
-    return ips
+    if not ifaces:
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(0.5)
+            s.connect(("239.255.43.21", 43210))
+            ip = s.getsockname()[0]
+            s.close()
+            if ip != "127.0.0.1":
+                ifaces.append({"ip": ip})
+        except OSError:
+            pass
+    return ifaces
+
+
+def _lan_ips() -> list[str]:
+    return [e["ip"] for e in _lan_interfaces()]
 
 
 def test_multicast() -> dict:
@@ -128,8 +142,19 @@ def test_multicast() -> dict:
     return r
 
 
+def _bcast_addrs() -> list[str]:
+    """Return list of subnet broadcast addresses for non-loopback interfaces."""
+    addrs = []
+    for iface in _lan_interfaces():
+        bcast = iface.get("bcast")
+        if bcast:
+            addrs.append(bcast)
+    return addrs
+
+
 def send_manual_announce(hostname: str, daemon_port: int, castes: str = "αβγ", instance_id: str = ""):
     ips = _lan_ips()
+    bcasts = _bcast_addrs()
     data = _build_announce(hostname, daemon_port, castes=castes, instance_id=instance_id)
     def _send_with_socket(label: str, send_fn) -> int:
         try:
@@ -159,12 +184,25 @@ def send_manual_announce(hostname: str, daemon_port: int, castes: str = "αβγ"
 
     def _send_bcast(sock: socket.socket) -> int:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        sent = 0
+        for bcast in bcasts:
+            try:
+                sock.sendto(data, (bcast, MULTICAST_PORT))
+                sent += 1
+            except OSError:
+                pass
         sock.sendto(data, ("255.255.255.255", MULTICAST_PORT))
-        return 1
+        sent += 1
+        return sent
 
     sent = _send_with_socket("mcast", _send_mcast) + _send_with_socket("bcast", _send_bcast)
     status = "sent" if sent > 0 else "attempted"
-    print(f"γ|swarm|announce|{status}|{MULTICAST_GROUP}:{MULTICAST_PORT}+bcast|ifaces={','.join(ips)}", flush=True)
+    iface_parts = []
+    for iface in _lan_interfaces():
+        ip = iface["ip"]
+        b = iface.get("bcast", "?")
+        iface_parts.append(f"{ip} bcast={b}")
+    print(f"γ|swarm|announce|{status}|{MULTICAST_GROUP}:{MULTICAST_PORT}+bcast|ifaces={','.join(iface_parts)}", flush=True)
 
 
 class DiscoveryService:
@@ -253,6 +291,12 @@ class DiscoveryService:
                 try:
                     self._sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
                     self._sock.sendto(data, (MULTICAST_GROUP, MULTICAST_PORT))
+                except OSError:
+                    pass
+            bcasts = _bcast_addrs()
+            for bcast in bcasts:
+                try:
+                    self._sock.sendto(data, (bcast, MULTICAST_PORT))
                 except OSError:
                     pass
             self._sock.sendto(data, ("255.255.255.255", MULTICAST_PORT))
