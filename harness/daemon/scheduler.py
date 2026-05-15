@@ -161,6 +161,7 @@ class SchedulerEngine:
             "post_to_board": self._action_post_to_board,
         }
         self._peer_failures: dict[str, float] = {}
+        self._peer_selection_cursor: dict[str, str] = {}
 
     @property
     def running(self) -> bool:
@@ -350,28 +351,34 @@ class SchedulerEngine:
         delegation = cfg.get("swarm", {}).get("delegation", {})
         if delegation.get("enabled", True):
             max_load = delegation.get("max_load", 5)
-            peer = self._select_peer("βγ", max_load)
-            if peer and task.parent_id:
+            selection = delegation.get("selection", "round_robin")
+            peers = self._select_peers("βγ", max_load, selection)
+            if peers and task.parent_id:
                 parent = board.get(task.parent_id)
                 if parent:
-                    resp = self._delegate_to_peer(peer, "/v1/tasks/execute",
-                                                  {"title": parent.title, "prompt": parent.prompt})
-                    if resp and "task_result" in resp:
-                        for child in board.children_of(parent.id):
-                            board.delete(child.id)
-                        board.complete(parent.id, resp["task_result"])
-                        for u in resp.get("units", []):
-                            child = Task(level=Level.UNIT, title=u["title"][:80],
-                                         prompt=u["title"], parent_id=parent.id,
-                                         state=State.DONE, result=u["result"])
-                            board.create(child)
-                        print(f"γ|worker|delegate|{peer}|{parent.id[:8]}|task", flush=True)
-                        return
-            peer = self._select_peer("γ", max_load)
-            if peer:
+                    for peer in peers:
+                        resp = self._delegate_to_peer(
+                            peer,
+                            "/v1/tasks/execute",
+                            {"title": parent.title, "prompt": parent.prompt},
+                        )
+                        if resp and "task_result" in resp:
+                            self._mark_peer_selected("βγ", peer)
+                            for child in board.children_of(parent.id):
+                                board.delete(child.id)
+                            board.complete(parent.id, resp["task_result"])
+                            for u in resp.get("units", []):
+                                child = Task(level=Level.UNIT, title=u["title"][:80],
+                                             prompt=u["title"], parent_id=parent.id,
+                                             state=State.DONE, result=u["result"])
+                                board.create(child)
+                            print(f"γ|worker|delegate|{peer}|{parent.id[:8]}|task", flush=True)
+                            return
+            for peer in self._select_peers("γ", max_load, selection):
                 resp = self._delegate_to_peer(peer, "/v1/units/execute",
                                               {"prompt": task.prompt or task.title})
                 if resp and "result" in resp:
+                    self._mark_peer_selected("γ", peer)
                     board.complete(task.id, resp["result"])
                     print(f"γ|worker|delegate|{peer}|{task.id[:8]}|unit", flush=True)
                     return
@@ -381,13 +388,35 @@ class SchedulerEngine:
         print(f"γ|worker|gamma_done|{task.id[:8]}", flush=True)
 
     def _select_peer(self, required_castes: str, max_load: int) -> Optional[str]:
-        candidates = [p for p in _peer_table.list_active()
-                      if all(c in p.castes for c in required_castes)
-                      and p.load < max_load]
+        peers = self._select_peers(required_castes, max_load)
+        return peers[0] if peers else None
+
+    def _select_peers(
+        self,
+        required_castes: str,
+        max_load: int,
+        strategy: str = "round_robin",
+    ) -> list[str]:
+        candidates = [
+            p for p in _peer_table.list_active()
+            if all(c in p.castes for c in required_castes) and p.load < max_load
+        ]
         if not candidates:
-            return None
-        best = min(candidates, key=lambda p: p.load)
-        return f"{best.addr}:{best.port}"
+            return []
+        if strategy != "round_robin":
+            strategy = "round_robin"
+        ordered = sorted(candidates, key=lambda p: p.key())
+        if strategy == "round_robin":
+            keys = [peer.key() for peer in ordered]
+            last_key = self._peer_selection_cursor.get(required_castes)
+            if last_key in keys:
+                start = (keys.index(last_key) + 1) % len(keys)
+                return keys[start:] + keys[:start]
+            return keys
+        return [peer.key() for peer in ordered]
+
+    def _mark_peer_selected(self, required_castes: str, peer_key: str):
+        self._peer_selection_cursor[required_castes] = peer_key
 
     def _delegate_to_peer(self, peer_key: str, path: str, body: dict) -> Optional[dict]:
         last_fail = self._peer_failures.get(peer_key, 0.0)

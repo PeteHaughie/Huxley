@@ -61,6 +61,7 @@ DEFAULT_CONFIG = {
         "delegation": {
             "enabled": True,
             "max_load": 5,
+            "selection": "round_robin",
         },
     },
     "harness": {
@@ -95,13 +96,23 @@ def load_config() -> dict:
         return DEFAULT_CONFIG
     with open(DEFAULT_CONFIG_PATH) as f:
         cfg = yaml.safe_load(f) or {}
-    merged = DEFAULT_CONFIG.copy()
-    for section, values in cfg.items():
-        if section in merged and isinstance(merged[section], dict):
-            merged[section].update(values)
-        else:
-            merged[section] = values
+    merged = _deep_merge_dicts(DEFAULT_CONFIG, cfg)
     _resolve_model_paths(merged)
+    return merged
+
+
+def _deep_merge_dicts(base: dict, overrides: dict) -> dict:
+    merged = {}
+    for key, value in base.items():
+        if isinstance(value, dict):
+            merged[key] = _deep_merge_dicts(value, {})
+        else:
+            merged[key] = value
+    for key, value in overrides.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_dicts(merged[key], value)
+        else:
+            merged[key] = value
     return merged
 
 
