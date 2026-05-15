@@ -2,6 +2,7 @@ from __future__ import annotations
 import json
 import uuid
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -69,3 +70,45 @@ def _save_registry(registry: dict):
     MONSTER_HOME.mkdir(parents=True, exist_ok=True)
     with open(REGISTRY_PATH, "w") as f:
         json.dump(registry, f, indent=2)
+
+
+def _estimate_tokens(text: str) -> int:
+    return int(len(text.split()) * 1.5) + 1
+
+
+class SessionJournal:
+    def __init__(self, session_id: str, caste_tag: str):
+        self.path = SESSIONS_DIR / session_id / caste_tag / "journal.jsonl"
+
+    def append(self, role: str, content: str):
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self.path, "a") as f:
+            f.write(json.dumps({"role": role, "content": content, "ts": datetime.now(timezone.utc).isoformat()}, ensure_ascii=False) + "\n")
+
+    def read(self, max_tokens: int = 4096) -> list[dict]:
+        if not self.path.exists():
+            return []
+        raw = self.path.read_text()
+        if not raw.strip():
+            return []
+        entries = []
+        for line in raw.splitlines():
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+        reserve = 256
+        budget = max_tokens - reserve
+        selected = []
+        used = 0
+        for entry in reversed(entries):
+            est = _estimate_tokens(entry["content"])
+            if used + est > budget:
+                break
+            selected.insert(0, entry)
+            used += est
+        return [{"role": e["role"], "content": e["content"]} for e in selected]
+
+    def clear(self):
+        if self.path.exists():
+            self.path.unlink()

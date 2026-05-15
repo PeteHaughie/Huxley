@@ -46,11 +46,13 @@ def cmd_skills(args):
 
 def cmd_infer(args):
     router = Router()
+    sid, work_dir = SessionStore.resolve_session(args.dir)
     msg = Message(
         caste=Caste.from_alias(args.caste),
         action=Action.INFER,
         payload={"prompt": args.prompt},
         context_hint=ContextHint(args.context),
+        session=sid,
     )
     resp = router.dispatch(msg)
     payload = resp.payload

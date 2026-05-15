@@ -75,7 +75,12 @@ class Beta(CasteBase):
             )
         prompt = _fmt_beta_prompt(msg)
         system = _beta_system_prompt(msg.context_hint)
-        messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+        history = []
+        if msg.session:
+            from harness.memory.persistence import SessionJournal
+            journal = SessionJournal(msg.session, "beta")
+            history = journal.read(max_tokens=msg.token_budget.get("input", 4096))
+        messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": prompt}]
         max_tok = msg.token_budget.get("output", 128)
         try:
             if hasattr(self._tokenizer, "apply_chat_template"):
@@ -92,6 +97,9 @@ class Beta(CasteBase):
                     temperature=0.1, stop=None,
                 )
                 response = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if msg.session:
+                journal.append("user", prompt)
+                journal.append("assistant", response.strip())
             return Message(
                 caste=Caste.BETA,
                 action=Action.INFER,

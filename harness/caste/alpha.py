@@ -118,12 +118,22 @@ class Alpha(CasteBase):
                 session=msg.session,
             )
         try:
+            from harness.memory.persistence import SessionJournal
+            user_content = _fmt_alpha_prompt(msg)
+            history = []
+            if msg.session:
+                journal = SessionJournal(msg.session, "alpha")
+                history = journal.read(max_tokens=msg.token_budget.get("input", 4096))
+            messages = history + [{"role": "user", "content": user_content}]
             resp = self.client().chat(
-                messages=[{"role": "user", "content": _fmt_alpha_prompt(msg)}],
+                messages=messages,
                 max_tokens=msg.token_budget.get("output", 2048),
                 temperature=0.1,
             )
             content = resp["choices"][0]["message"]["content"]
+            if msg.session:
+                journal.append("user", user_content)
+                journal.append("assistant", content)
             return Message(
                 caste=Caste.ALPHA,
                 action=Action.INFER,
