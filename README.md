@@ -13,27 +13,27 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 ## Architecture
 
 ```
-┌────────────────────────────────────────────────────────┐
-│  monsterd  (background daemon, ~/.monster/monsterd.pid) │
+┌──────────────────────────────────────────────────────────┐
+│  monsterd  (background daemon, ~/.monster/monsterd.pid)  │
 │                                                          │
-│  ┌── tick loop (every 5s) ───────────────────────────┐  │
+│  ┌── tick loop (every 5s) ────────────────────────────┐  │
 │  │  scheduler: check registry → fire due entries      │  │
 │  │  worker:   claim board tasks → route → complete    │  │
 │  │  router:   shared instance (models stay resident)  │  │
 │  └────────────────────────────────────────────────────┘  │
 │                                                          │
-│  User                                                   │
-│    │                                                    │
-│    ▼                                                    │
-│  α (Gemma 4 e4B)   ←──┐                                │
+│  User                                                    │
+│    │                                                     │
+│    ▼                                                     │
+│  α (Gemma 4 e4B)      ←──┐                               │
 │    │                     │                               │
 │    ├── posts EPICs ──────┤                               │
 │    │                     │                               │
 │    ▼                     │                               │
-│  ╔══════════════════╗    │  ← shared pull-queue         │
-│  ║   Kanban Board   ║    │                               │
-│  ║  ~/.monster/board/║    │                               │
-│  ╚══════════════════╝    │                               │
+│  ╔════════════════════╗  │  ← shared pull-queue          │
+│  ║   Kanban Board     ║  │                               │
+│  ║  ~/.monster/board/ ║  │                               │
+│  ╚════════════════════╝  │                               │
 │    ▲                     │                               │
 │    │                     │                               │
 │    ├── β claims EPICs,   │                               │
@@ -54,7 +54,7 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 │    ├── MemQ Graph      (entity-relation memory)          │
 │    ├── TurboQuant KV Cache                               │
 │    └── Cloud Endpoint  (OpenAI-compatible, optional)     │
-└────────────────────────────────────────────────────────┘
+└──────────────────────────────────────────────────────────┘
 ```
 
 ### Caste System
@@ -248,6 +248,54 @@ The Router is shared across ticks — models stay resident, no reload overhead b
 
 Gamma auto-starts Apfel lazily on the first `infer()` call via `ensure_apfel()`. A PID file at `~/.monster/apfeld.pid` tracks ownership: if monster started Apfel, `monster daemon stop` also kills it. If you started Apfel yourself, it is never touched.
 
+## Swarm (LAN Peer Discovery)
+
+Monsters on the same LAN automatically discover each other via **UDP multicast**. Each running `monsterd` broadcasts a heartbeat every 30s to `239.255.43.21:43210` and listens for heartbeats from peers. Peers are marked as lost after 90s of silence.
+
+```
+┌─────────────────┐        UDP multicast         ┌─────────────────┐
+│ monsterd (M2 Pro)│ ◄───── 239.255.43.21 ──────► │ monsterd (M5)   │
+│ port 8083        │                               │ port 8083       │
+│ castes: αβγ      │                               │ castes: αγ      │
+└─────────────────┘                               └─────────────────┘
+```
+
+Discovery is **zero-config** — no registry, no configuration, no external dependencies. If two daemons are on the same LAN, they find each other automatically.
+
+```bash
+# List known LAN peers (requires monsterd running)
+monster swarm peers
+# γ|swarm|peer|●|m2-mini-32gb         |:8083|castes=αβγ|load=0.0|age=12s
+
+# Show swarm status
+monster swarm status
+# γ|swarm|status|total=1|active=1
+```
+
+The peer table is accessible via the daemon control API:
+
+| Endpoint | Description |
+|----------|-------------|
+| `GET /v1/swarm/peers` | List known LAN peers |
+| `GET /v1/swarm/status` | Swarm status (enabled, peer count) |
+
+### Config
+
+```yaml
+swarm:
+  enabled: true
+  multicast_group: 239.255.43.21
+  multicast_port: 43210
+  announce_interval: 30
+  stale_timeout: 90
+```
+
+### Roadmap (future)
+
+- **Borrow/lend model**: Request idle β/γ capacity from peers via the daemon HTTP API
+- **Idle consensus**: When all local EPICs are done and peers are idle, form distributed daydream sessions
+- **Auth tokens**: Per-task authentication for remote board access
+
 ## Session Journal & Compaction
 
 Every caste writes an append-only JSONL journal per session at `~/.monster/sessions/<sid>/<caste>/journal.jsonl`. Journals survive crashes (corrupt trailing lines are skipped on read).
@@ -349,6 +397,7 @@ monster patch --apply harness/config.py
 | `monster compact [--caste]` | Compact session journal via summarisation |
 | `monster daemon start\|stop\|status` | Manage monster background daemon |
 | `monster schedule list\|add\|remove\|history` | Manage scheduled tasks |
+| `monster swarm peers\|status` | LAN peer discovery and swarm status |
 
 ### Board (Kanban Job Queue)
 
@@ -523,6 +572,10 @@ monster/
 │   │   ├── __init__.py
 │   │   ├── endpoint.py      # OpenAI-compatible cloud client
 │   │   └── router.py        # Cloud routing
+│       ├── swarm/
+│   │   ├── __init__.py
+│   │   ├── peer.py          # Peer table with TTL-based staleness
+│   │   └── discovery.py     # UDP multicast discovery service
 │   ├── selfmod/
 │   │   ├── __init__.py
 │   │   ├── introspect.py    # AST-based API surface discovery

@@ -3,7 +3,7 @@ import os
 import threading
 import http.server
 import urllib.parse
-from harness.daemon.scheduler import SchedulerEngine, Schedule, _ensure_scheduler_dir
+from harness.daemon.scheduler import SchedulerEngine, Schedule, _ensure_scheduler_dir, _peer_table
 
 DAEMON_PORT = int(os.environ.get("MONSTERD_PORT", "8083"))
 
@@ -58,6 +58,10 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/v1/schedule/history":
             sid = qs.get("id", [None])[0]
             self._send(_scheduler.history(sid))
+        elif path == "/v1/swarm/peers":
+            self._send([p.to_dict() for p in _peer_table.list_active()])
+        elif path == "/v1/swarm/status":
+            self._send({"enabled": True, "peers": _peer_table.count(), "active_peers": len(_peer_table.list_active())})
         else:
             self._send({"error": "not found"}, 404)
 

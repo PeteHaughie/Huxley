@@ -188,6 +188,38 @@ def _daemon_api(method: str, path: str, body: dict | None = None) -> dict | list
         return None
 
 
+# -- swarm commands --
+
+def _swarm_api(path: str) -> dict | list | None:
+    import urllib.request, urllib.error, json
+    url = f"http://127.0.0.1:{DAEMON_PORT}{path}"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as resp:
+            return json.loads(resp.read())
+    except (urllib.error.URLError, ConnectionError, OSError):
+        return None
+
+
+def cmd_swarm(args):
+    if args.swarm_cmd == "peers":
+        data = _swarm_api("/v1/swarm/peers")
+        if data is None:
+            print("γ|swarm|err|daemon not running", flush=True)
+            return
+        if not data:
+            print("γ|swarm|peers|none", flush=True)
+            return
+        for p in data:
+            icon = "○" if p.get("lost") else "●"
+            print(f"γ|swarm|peer|{icon}|{p['hostname']:<20}|:{p['port']}|castes={p['castes']}|load={p['load']}|age={p['age']}s{' LOST' if p.get('lost') else ''}", flush=True)
+    elif args.swarm_cmd == "status":
+        data = _swarm_api("/v1/swarm/status")
+        if data is None:
+            print("γ|swarm|err|daemon not running", flush=True)
+            return
+        print(f"γ|swarm|status|total={data.get('peers',0)}|active={data.get('active_peers',0)}", flush=True)
+
+
 def cmd_schedule(args):
     if args.sched_cmd == "list":
         data = _daemon_api("GET", "/v1/schedules")
@@ -437,6 +469,11 @@ def main():
     sched_hist_p = sched_sub.add_parser("history", help="Show schedule firing history")
     sched_hist_p.add_argument("--id", dest="schedule_id", help="Filter by schedule ID")
 
+    swarm_p = sub.add_parser("swarm", help="LAN peer discovery and swarm status")
+    swarm_sub = swarm_p.add_subparsers(dest="swarm_cmd")
+    swarm_sub.add_parser("peers", help="List known LAN peers")
+    swarm_sub.add_parser("status", help="Show swarm status")
+
     args = parser.parse_args()
     if args.command == "init":
         cmd_init(args)
@@ -464,5 +501,7 @@ def main():
         cmd_daemon(args)
     elif args.command == "schedule":
         cmd_schedule(args)
+    elif args.command == "swarm":
+        cmd_swarm(args)
     else:
         parser.print_help()

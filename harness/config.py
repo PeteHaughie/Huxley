@@ -51,6 +51,13 @@ DEFAULT_CONFIG = {
         "enabled": True,
         "tick_interval": 5,
     },
+    "swarm": {
+        "enabled": True,
+        "multicast_group": "239.255.43.21",
+        "multicast_port": 43210,
+        "announce_interval": 30,
+        "stale_timeout": 90,
+    },
     "harness": {
         "context_hint": "caveman",
         "models_dir": "~/.monster/models",

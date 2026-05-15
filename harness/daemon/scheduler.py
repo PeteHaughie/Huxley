@@ -9,6 +9,8 @@ from typing import Any, Callable, Optional
 
 from harness.config import load_config, MONSTER_HOME, MONSTER_BOARD_DIR
 from harness.board import JobBoard, Task, Level, State
+from harness.swarm.discovery import DiscoveryService
+from harness.swarm.peer import PeerTable
 
 SCHEDULER_DIR = MONSTER_HOME / "scheduler"
 SCHEDULES_PATH = SCHEDULER_DIR / "schedules.json"
@@ -144,12 +146,16 @@ def _check_backlog(board: JobBoard, when: dict) -> bool:
     return len(tasks) >= threshold
 
 
+_peer_table = PeerTable()
+
+
 class SchedulerEngine:
     def __init__(self, tick_interval: int = 5):
         self.tick_interval = tick_interval
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._router: Any = None
+        self._discovery: Optional[DiscoveryService] = None
         self._action_handlers: dict[str, Callable] = {
             "post_to_board": self._action_post_to_board,
         }
@@ -162,11 +168,19 @@ class SchedulerEngine:
         if self._running:
             return
         self._running = True
+        cfg = load_config()
+        if cfg.get("swarm", {}).get("enabled", True):
+            daemon_port = cfg.get("daemon", {}).get("port", 8083)
+            self._discovery = DiscoveryService(daemon_port, _peer_table)
+            self._discovery.start()
         self._thread = threading.Thread(target=self._tick_loop, daemon=True)
         self._thread.start()
 
     def stop(self):
         self._running = False
+        if self._discovery:
+            self._discovery.stop()
+            self._discovery = None
         if self._thread:
             self._thread.join(timeout=10)
             self._thread = None
