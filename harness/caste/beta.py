@@ -71,24 +71,28 @@ class Beta(CasteBase):
                 session=msg.session,
             )
         prompt = _fmt_beta_prompt(msg)
+        system = _beta_system_prompt(msg.context_hint)
+        messages = [{"role": "system", "content": system}, {"role": "user", "content": prompt}]
+        max_tok = msg.token_budget.get("output", 128)
         try:
             if hasattr(self._tokenizer, "apply_chat_template"):
                 import mlx_lm
+                formatted = self._tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
                 response = mlx_lm.generate(
                     self._model, self._tokenizer,
-                    prompt=prompt, max_tokens=msg.token_budget.get("output", 512),
+                    prompt=formatted, max_tokens=max_tok,
                     temp=0.1, verbose=False,
                 )
             else:
-                response = self._model.create_completion(
-                    prompt, max_tokens=msg.token_budget.get("output", 512),
+                response = self._model.create_chat_completion(
+                    messages=messages, max_tokens=max_tok,
                     temperature=0.1, stop=None,
                 )
-                response = response.get("choices", [{}])[0].get("text", "")
+                response = response.get("choices", [{}])[0].get("message", {}).get("content", "")
             return Message(
                 caste=Caste.BETA,
                 action=Action.INFER,
-                payload={"result": response},
+                payload={"result": response.strip()},
                 session=msg.session,
             )
         except Exception as e:
@@ -105,6 +109,12 @@ class Beta(CasteBase):
             return True
         except Exception:
             return False
+
+
+def _beta_system_prompt(hint: str = "caveman") -> str:
+    if hint == "caveman":
+        return "You are a terse AI assistant. Respond in 1-2 sentences. No explanation, no rambling, no thinking out loud."
+    return "You are a helpful AI assistant. Be concise."
 
 
 def _fmt_beta_prompt(msg: Message) -> str:

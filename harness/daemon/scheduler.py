@@ -149,6 +149,7 @@ class SchedulerEngine:
         self.tick_interval = tick_interval
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._router: Any = None
         self._action_handlers: dict[str, Callable] = {
             "post_to_board": self._action_post_to_board,
         }
@@ -207,9 +208,42 @@ class SchedulerEngine:
         while self._running:
             try:
                 self._tick()
+                self._worker_tick()
             except Exception as e:
                 print(f"γ|scheduler|tick_err|{e}", flush=True)
             time.sleep(self.tick_interval)
+
+    def _worker_tick(self):
+        board = JobBoard()
+        for level, caste_tag in [(Level.UNIT, "γ"), (Level.TASK, "β"), (Level.EPIC, "α")]:
+            t = board.claim(level, caste_tag=caste_tag)
+            if t is None:
+                continue
+            print(f"γ|worker|claim|{t.id[:8]}|{level.value}|{t.title[:40]}", flush=True)
+            try:
+                result = self._execute(t)
+                board.complete(t.id, result)
+                print(f"γ|worker|done|{t.id[:8]}|{level.value}", flush=True)
+            except Exception as e:
+                print(f"γ|worker|err|{t.id[:8]}|{e}", flush=True)
+                board.complete(t.id, f"error: {e}")
+            return
+
+    def _execute(self, task: Task) -> str:
+        from harness.comms import Message, Caste, Action
+        from harness.comms.router import Router
+        if self._router is None:
+            self._router = Router()
+        msg = Message(
+            caste={"epic": Caste.ALPHA, "task": Caste.BETA, "unit": Caste.GAMMA}[task.level.value],
+            action=Action.INFER,
+            payload={"prompt": task.prompt or task.title},
+        )
+        resp = self._router.dispatch(msg)
+        payload = resp.payload
+        if "error" in payload:
+            raise RuntimeError(payload["error"])
+        return payload.get("result", "")
 
     def _tick(self):
         board = JobBoard()
