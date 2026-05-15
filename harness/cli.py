@@ -14,6 +14,7 @@ from harness.selfmod.introspect import module_map, api_surface
 from harness.selfmod.patcher import Patcher
 from harness.board import JobBoard, Task, Level as BLevel, State as BState
 from harness.board.serve import serve as board_serve
+from harness.board.lifecycle import start_boardd, stop_boardd, boardd_status
 from harness.daemon.lifecycle import start_daemon, stop_daemon, daemon_status, is_running, DAEMON_PORT
 
 
@@ -206,7 +207,20 @@ def cmd_board(args):
     elif args.board_cmd == "complete":
         _board_complete(board, args)
     elif args.board_cmd == "serve":
-        board_serve(port=args.port)
+        if args.serve_cmd == "start":
+            ok = start_boardd(port=args.port)
+            if not ok:
+                st = boardd_status()
+                print(f"γ|boardd|start|already_running|:{st.get('port', '?')}" if st["running"] else "γ|boardd|start|fail", flush=True)
+        elif args.serve_cmd == "stop":
+            ok = stop_boardd()
+            print("γ|boardd|stop|ok" if ok else "γ|boardd|stop|not_running", flush=True)
+        elif args.serve_cmd == "status":
+            st = boardd_status()
+            if st["running"]:
+                print(f"γ|boardd|running|:{st.get('port', '?')}|pid={st.get('pid', '?')}", flush=True)
+            else:
+                print("γ|boardd|stopped", flush=True)
 
 
 def _board_list(board: JobBoard, args):
@@ -336,8 +350,12 @@ def main():
     board_complete_p.add_argument("task_id", help="Task ID")
     board_complete_p.add_argument("--result", help="Result text")
 
-    board_serve_p = board_sub.add_parser("serve", help="Start Kanban web UI")
-    board_serve_p.add_argument("--port", type=int, default=8080, help="HTTP port (default 8080)")
+    board_serve_p = board_sub.add_parser("serve", help="Manage Kanban web UI daemon")
+    board_serve_sub = board_serve_p.add_subparsers(dest="serve_cmd")
+    board_serve_start_p = board_serve_sub.add_parser("start", help="Start board daemon in background")
+    board_serve_start_p.add_argument("--port", type=int, default=8080, help="HTTP port (default 8080)")
+    board_serve_sub.add_parser("stop", help="Stop board daemon")
+    board_serve_sub.add_parser("status", help="Check if board daemon is running")
 
     daemon_p = sub.add_parser("daemon", help="Control the monster background daemon")
     daemon_sub = daemon_p.add_subparsers(dest="daemon_cmd")

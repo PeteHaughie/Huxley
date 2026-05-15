@@ -14,7 +14,22 @@ class Gamma(CasteBase):
         model = _cfg.get("model", "apple-foundationmodel")
         self.client = OpenAICompatibleClient(endpoint=endpoint, model=model, timeout=15.0)
 
+    def _ensure_apfel(self) -> str | None:
+        from harness.caste.apfeld import ensure_apfel
+        if not ensure_apfel():
+            return "apfel failed to start"
+        return None
+
     def infer(self, msg: Message) -> Message:
+        err = self._ensure_apfel()
+        if err:
+            return Message(
+                caste=Caste.GAMMA,
+                action=Action.INFER,
+                payload={"error": err},
+                session=msg.session,
+                context_hint=ContextHint.CAVEMAN,
+            )
         prompt = _fmt_gamma_prompt(msg)
         try:
             resp = self.client.chat(

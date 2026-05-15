@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 import http.server
 import urllib.parse
 from pathlib import Path
@@ -243,6 +244,9 @@ class BoardHandler(http.server.BaseHTTPRequestHandler):
             t = Task(level=Level(level), title=title, prompt=prompt)
             board.create(t)
             self._send(t.to_dict(), 201)
+        elif path == "/shutdown":
+            self._send({"status": "stopping"})
+            threading.Thread(target=self.server.shutdown, daemon=True).start()
         else:
             self._send({"error": "not found"}, 404)
 
