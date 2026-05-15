@@ -219,25 +219,30 @@ def cmd_swarm(args):
             return
         print(f"γ|swarm|status|total={data.get('peers',0)}|active={data.get('active_peers',0)}", flush=True)
     elif args.swarm_cmd == "test":
-        from harness.swarm.discovery import test_multicast, get_lan_ip
+        from harness.swarm.discovery import test_multicast, _lan_ips, MULTICAST_PORT
         import socket
-        local = get_lan_ip()
+        r = test_multicast()
         hostname = socket.gethostname()
         print(f"γ|swarm|test|hostname={hostname}", flush=True)
-        print(f"γ|swarm|test|lan_ip={local}", flush=True)
-        print(f"γ|swarm|test|multicast=239.255.43.21:43210", flush=True)
-        print(f"γ|swarm|test|running_self_test...", flush=True)
-        r = test_multicast()
+        ips = _lan_ips()
+        for ip in ips:
+            print(f"γ|swarm|test|iface|{ip}", flush=True)
         if r.get("error"):
             print(f"γ|swarm|test|error={r['error']}", flush=True)
         else:
-            print(f"γ|swarm|test|send={r['send_ok']}|recv={r['recv_ok']}|loopback={r['loopback']}|interface={r.get('interface','?')}", flush=True)
-        if r.get("necp_restricted"):
-            print(f"γ|swarm|test|hint|multicast blocked by Tailscale Network Extension (NECP)", flush=True)
-            print(f"γ|swarm|test|hint|swarm will use LAN broadcast as fallback — no action needed", flush=True)
-        elif not r.get("loopback"):
-            print(f"γ|swarm|test|hint|firewall may be blocking UDP to 239.255.43.21:43210", flush=True)
-            print(f"γ|swarm|test|hint|check 'sudo pfctl -s info' or System Settings > Network > Firewall", flush=True)
+            print(f"γ|swarm|test|send={r['send_ok']}|recv={r['recv_ok']}|loopback={r['loopback']}", flush=True)
+        fw = r.get("firewall")
+        if fw:
+            print(f"γ|swarm|test|firewall|{fw}", flush=True)
+        if not r.get("loopback"):
+            print(f"γ|swarm|test|hint|no loopback — packets not reaching self", flush=True)
+            print(f"γ|swarm|test|hint|firewall or NECP blocking UDP on port {MULTICAST_PORT}", flush=True)
+    elif args.swarm_cmd == "announce":
+        from harness.swarm.discovery import send_manual_announce, _lan_ips
+        import socket
+        port = args.port if args.port is not None else 8083
+        send_manual_announce(socket.gethostname(), port)
+        print(f"γ|swarm|announce|done|ifaces={_lan_ips()}:{port}", flush=True)
 
 
 def cmd_schedule(args):
@@ -493,7 +498,9 @@ def main():
     swarm_sub = swarm_p.add_subparsers(dest="swarm_cmd")
     swarm_sub.add_parser("peers", help="List known LAN peers")
     swarm_sub.add_parser("status", help="Show swarm status")
-    swarm_sub.add_parser("test", help="Test multicast connectivity")
+    swarm_sub.add_parser("test", help="Test multicast/broadcast connectivity")
+    announce_p = swarm_sub.add_parser("announce", help="Send immediate announce packet")
+    announce_p.add_argument("--port", type=int, default=None, help="Daemon port to announce")
 
     args = parser.parse_args()
     if args.command == "init":
