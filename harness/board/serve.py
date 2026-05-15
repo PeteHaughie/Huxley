@@ -277,10 +277,22 @@ class BoardHandler(http.server.BaseHTTPRequestHandler):
         else:
             self._send({"error": "not found"}, 404)
 
+    def do_DELETE(self):
+        path, _ = self._path_parts()
+        if path.startswith("/api/tasks/"):
+            task_id = path.split("/api/tasks/")[1]
+            board = JobBoard()
+            if board.delete(task_id):
+                self._send({"status": "removed"})
+            else:
+                self._send({"error": "not found"}, 404)
+        else:
+            self._send({"error": "not found"}, 404)
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 

@@ -152,10 +152,14 @@ class JobBoard:
 
     def delete(self, task_id: str) -> bool:
         path = self._task_path(task_id)
-        if not path.exists():
-            return False
-        path.unlink()
-        return True
+        if path.exists():
+            path.unlink()
+            return True
+        for p in MONSTER_BOARD_DIR.glob("*.json"):
+            if p.stem.startswith(task_id):
+                p.unlink()
+                return True
+        return False
 
     # -- query --
 

@@ -208,6 +208,8 @@ def cmd_board(args):
         _board_claim(board, args)
     elif args.board_cmd == "complete":
         _board_complete(board, args)
+    elif args.board_cmd == "delete":
+        _board_delete(board, args)
     elif args.board_cmd == "serve":
         if args.serve_cmd == "start":
             ok = start_boardd(port=args.port)
@@ -287,6 +289,13 @@ def _board_complete(board: JobBoard, args):
     print(f"γ|board|done|{t.id[:12]}|{t.level.value}|{t.title}", flush=True)
 
 
+def _board_delete(board: JobBoard, args):
+    if board.delete(args.task_id):
+        print(f"γ|board|deleted|{args.task_id[:12]}", flush=True)
+    else:
+        print(f"γ|board|not_found|{args.task_id}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="monster",
@@ -351,6 +360,9 @@ def main():
     board_complete_p = board_sub.add_parser("complete", help="Mark task as done")
     board_complete_p.add_argument("task_id", help="Task ID")
     board_complete_p.add_argument("--result", help="Result text")
+
+    board_delete_p = board_sub.add_parser("delete", help="Delete a task from the board")
+    board_delete_p.add_argument("task_id", help="Task ID (full UUID or prefix)")
 
     board_serve_p = board_sub.add_parser("serve", help="Manage Kanban web UI daemon")
     board_serve_sub = board_serve_p.add_subparsers(dest="serve_cmd")
