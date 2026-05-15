@@ -13,37 +13,48 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 ## Architecture
 
 ```
-User
-  │
-  ▼
-α (Gemma 4 e4B)   ←──┐
-  │                     │
-  ├── posts EPICs ──────┤
-  │                     │
-  ▼                     │
-╔══════════════════╗    │
-║   Kanban Board   ║    │  ← shared pull-queue
-║  ~/.monster/board/ ║    │
-╚══════════════════╝    │
-  ▲                     │
-  │                     │
-  ├── β claims EPICs,   │
-  │   decomposes into   │
-  │   UNITS, posts back │
-  │                     │
-  ├── γ claims UNITS,   │
-  │   executes, marks   │
-  │   done              │
-  │                     │
-  └── β sees done,      │
-      assembles, marks ─┘
-      EPIC complete
-
-Memory (all castes):
-  ├── Chroma (vector memory)
-  ├── MemQ Graph (entity-relation memory)
-  ├── TurboQuant KV Cache
-  └── Cloud Endpoint (OpenAI-compatible, optional)
+┌────────────────────────────────────────────────────────┐
+│  monsterd  (background daemon, ~/.monster/monsterd.pid) │
+│                                                          │
+│  ┌── tick loop (every 5s) ───────────────────────────┐  │
+│  │  scheduler: check registry → fire due entries      │  │
+│  │  worker:   claim board tasks → route → complete    │  │
+│  │  router:   shared instance (models stay resident)  │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                          │
+│  User                                                   │
+│    │                                                    │
+│    ▼                                                    │
+│  α (Gemma 4 e4B)   ←──┐                                │
+│    │                     │                               │
+│    ├── posts EPICs ──────┤                               │
+│    │                     │                               │
+│    ▼                     │                               │
+│  ╔══════════════════╗    │  ← shared pull-queue         │
+│  ║   Kanban Board   ║    │                               │
+│  ║  ~/.monster/board/║    │                               │
+│  ╚══════════════════╝    │                               │
+│    ▲                     │                               │
+│    │                     │                               │
+│    ├── β claims EPICs,   │                               │
+│    │   decomposes into   │                               │
+│    │   UNITS, posts back │                               │
+│    │                     │                               │
+│    ├── γ claims UNITS,   │                               │
+│    │   executes, marks   │                               │
+│    │   done              │                               │
+│    │                     │                               │
+│    └── β sees done,      │                               │
+│        assembles, marks ─┘                               │
+│        EPIC complete                                     │
+│                                                          │
+│  Memory (all castes):                                    │
+│    ├── Session Journal  (append-only JSONL per caste)    │
+│    ├── Chroma          (vector memory)                   │
+│    ├── MemQ Graph      (entity-relation memory)          │
+│    ├── TurboQuant KV Cache                               │
+│    └── Cloud Endpoint  (OpenAI-compatible, optional)     │
+└────────────────────────────────────────────────────────┘
 ```
 
 ### Caste System
@@ -93,9 +104,15 @@ monster board show <task-id>          # partial UUID prefix ok
 # Complete work
 monster board complete <task-id> --result "done"
 
-# Launch Kanban web UI (Python stdlib, zero deps)
-monster board serve
-# γ|board|serve|http://localhost:8080
+# Launch Kanban web UI as background daemon (Python stdlib, zero deps)
+monster board serve start --port 8080
+# γ|boardd|started|pid 12345|http://localhost:8080
+
+monster board serve status
+# γ|boardd|running|pid 12345|http://localhost:8080
+
+monster board serve stop
+# γ|boardd|stopped|pid 12345
 ```
 
 ### Memory System
@@ -130,23 +147,117 @@ Model paths in `~/.monster/config.yaml` use `~` expansion and are resolved at lo
 
 ```
 ~/.monster/
-  registry.json       # path → session-id mapping
-  config.yaml         # global harness configuration
-  models/             # GGUF model files (Gemma 4, Bonsai fallback, etc.)
-  board/              # Kanban job board (one JSON file per task)
-  skills/             # monster-specific skills (shadow ~/.agents/skills/)
+  registry.json           # path → session-id mapping
+  config.yaml             # global harness configuration
+  models/                 # GGUF model files (Gemma 4, Bonsai fallback, etc.)
+  board/                  # Kanban job board (one JSON file per task)
+  skills/                 # monster-specific skills (shadow ~/.agents/skills/)
+  scheduler/
+    schedules.json        # persistent schedule registry
+    history.json          # last-N firings per schedule
+  monsterd.pid            # daemon PID (auto-generated)
+  monsterd.port           # daemon control port
+  monsterd.log            # daemon log output
+  boardd.pid              # board web UI PID
+  boardd.port             # board web UI port
+  boardd.log              # board web UI log
+  apfeld.pid              # Apfel PID (only if monster started it)
+  apfeld.log              # Apfel log
   sessions/
     <uuid>/
-      meta.json       # session metadata (path, created, last active)
-      interlink/      # Chroma vector database
-      graph/          # MemQ graph snapshots (nodes.json, edges.json)
-      cache/          # TurboQuant KV cache state
-      gamma/          # Apfel session scratch
-      beta/           # Bonsai session scratch
-      alpha/          # Alpha session scratch
+      meta.json           # session metadata (path, created, last active)
+      interlink/          # Chroma vector database
+      graph/              # MemQ graph snapshots (nodes.json, edges.json)
+      cache/              # TurboQuant KV cache state
+      gamma/
+        journal.jsonl     # append-only JSONL conversation log
+      beta/
+        journal.jsonl     # append-only JSONL conversation log
+      alpha/
+        journal.jsonl     # append-only JSONL conversation log
 ```
 
 Each project directory can have a `.monster` symlink → `~/.monster/sessions/<uuid>/` for quick reference.
+
+## Daemon (monsterd)
+
+The background daemon runs the scheduler tick loop and autonomous worker loop. It manages caste lifecycles, ports, and process state.
+
+```bash
+# Start monsterd (background, PID at ~/.monster/monsterd.pid)
+monster daemon start
+
+# Check status
+monster daemon status
+
+# Stop gracefully
+monster daemon stop
+```
+
+The daemon exposes an HTTP control API on `localhost:8083` (`MONSTERD_PORT`) for internal CLI commands. It stays resident so castes don't need to reload models between invocations.
+
+## Scheduler
+
+The scheduler runs inside monsterd — a tick loop (every 5s) that checks the schedule registry and fires due actions. Schedules persist across restarts in `~/.monster/scheduler/`.
+
+### Trigger Types
+
+| Type | Description | Syntax |
+|------|-------------|--------|
+| `interval` | Fire every N seconds | `--every 3600` |
+| `daily_at` | Fire at wall-clock time daily | `--at 02:00` |
+| `idle` | Fire after N seconds of empty board | `--idle-after 3600` |
+| `backlog` | Fire when backlog exceeds threshold | `--backlog 5` |
+
+### Action Types
+
+| Action | Effect |
+|--------|--------|
+| `post_to_board` | Creates board entry (default — preserves pull model) |
+
+### Commands
+
+```bash
+# List all schedules
+monster schedule list
+
+# Add an interval schedule (post a task to the board every hour)
+monster schedule add --type interval --every 3600 --action post_to_board --level task --title "hourly scan"
+
+# Add a daily schedule
+monster schedule add --type daily_at --at 02:00 --action post_to_board --level epic --title "morning summary"
+
+# View firing history
+monster schedule history
+
+# Remove a schedule
+monster schedule remove <id>
+```
+
+## Autonomous Worker Loop
+
+Every tick, the daemon claims pending board tasks and routes them to the correct caste:
+
+- **UNITS** → Gamma (cheap, stateless Apfel inference)
+- **TASKS** → Beta (mid-weight Bonsai inference)
+- **EPICs** → Alpha (full Gemma 4 orchestration)
+
+The Router is shared across ticks — models stay resident, no reload overhead between inferences.
+
+## Apfel Auto-Start
+
+Gamma auto-starts Apfel lazily on the first `infer()` call via `ensure_apfel()`. A PID file at `~/.monster/apfeld.pid` tracks ownership: if monster started Apfel, `monster daemon stop` also kills it. If you started Apfel yourself, it is never touched.
+
+## Session Journal & Compaction
+
+Every caste writes an append-only JSONL journal per session at `~/.monster/sessions/<sid>/<caste>/journal.jsonl`. Journals survive crashes (corrupt trailing lines are skipped on read).
+
+When a journal exceeds 30 entries, the caste auto-compacts: it self-summarises the middle portion into a system message, preserving the first 2 turns and the last 10 verbatim. The rewrite reduces token waste while retaining conversational context.
+
+```bash
+# Manual compaction (uses Beta by default)
+monster compact --caste b
+```
 
 ## Requirements
 
@@ -235,6 +346,9 @@ monster patch --apply harness/config.py
 | `monster models` | List GGUF models in `~/.monster/models/` |
 | `monster cloud <prompt>` | Route prompt via cloud endpoint |
 | `monster patch [--apply] <file>` | Dry-run or apply a self-mod patch |
+| `monster compact [--caste]` | Compact session journal via summarisation |
+| `monster daemon start\|stop\|status` | Manage monster background daemon |
+| `monster schedule list\|add\|remove\|history` | Manage scheduled tasks |
 
 ### Board (Kanban Job Queue)
 
@@ -244,8 +358,34 @@ monster patch --apply harness/config.py
 | `monster board post <level> <title>` | Post a new task (epic/task/unit) |
 | `monster board show <task-id>` | Show full task details |
 | `monster board claim <level> --caste <caste>` | Pull next available task into in_progress |
-| `monster board complete <task-id> --result` | Mark task as done with result |
-| `monster board serve [--port]` | Start Kanban web UI (default http://localhost:8080) |
+| `monster board complete <task-id> [--result]` | Mark task as done with result |
+| `monster board delete <task-id>` | Delete a task from the board |
+| `monster board serve start [--port]` | Start Kanban web UI daemon (default 8080) |
+| `monster board serve stop` | Stop board daemon |
+| `monster board serve status` | Check board daemon status |
+
+### Daemon (monsterd)
+
+| Command | Description |
+|---------|-------------|
+| `monster daemon start` | Start monsterd in background |
+| `monster daemon stop` | Stop monsterd |
+| `monster daemon status` | Check if monsterd is running |
+
+### Scheduler
+
+| Command | Description |
+|---------|-------------|
+| `monster schedule list` | List all schedules |
+| `monster schedule add <type> <interval/daily_at>` | Add a schedule |
+| `monster schedule remove <id>` | Remove a schedule |
+| `monster schedule history [<id>]` | View firing history |
+
+### Compaction
+
+| Command | Description |
+|---------|-------------|
+| `monster compact [--caste]` | Compact session journal via summarisation |
 
 ## Configuration
 
@@ -345,36 +485,52 @@ monster/
 ├── harness/
 │   ├── __init__.py          # Package version
 │   ├── __main__.py          # python -m harness
-│   ├── cli.py               # Entry point with 10+ commands
-    │   ├── board/
-    │   │   ├── core.py          # JobBoard, Task, Level, State, transitions
-    │   │   └── serve.py         # Kanban web UI server
+│   ├── cli.py               # Entry point with 15+ commands
 │   ├── config.py            # YAML config, ~/.monster/ bootstrap
+│   ├── board/
+│   │   ├── __init__.py
+│   │   ├── __main__.py      # Board daemon subprocess entry point
+│   │   ├── core.py          # JobBoard, Task, Level, State, transitions
+│   │   ├── lifecycle.py     # Board daemon start/stop/status
+│   │   └── serve.py         # Kanban web UI + REST API server
 │   ├── caste/
+│   │   ├── __init__.py
 │   │   ├── _base.py         # CasteBase ABC
+│   │   ├── apfeld.py        # Apfel lifecycle (auto-start, PID tracking)
 │   │   ├── gamma.py         # Apfel integration
-│   │   ├── beta.py          # Bonsai Ternary / MLX integration
+│   │   ├── beta.py          # Bonsai Ternary / MLX / llama.cpp integration
 │   │   └── alpha.py         # Gemma 4 / llama.cpp integration
 │   ├── comms/
-│   │   ├── message.py       # Structured JSON protocol
-│   │   └── router.py        # Caste message dispatcher
+│   │   ├── __init__.py
+│   │   ├── message.py       # Structured JSON protocol (Message, Caste, Action, ContextHint)
+│   │   └── router.py        # Caste message dispatcher (shared across ticks)
+│   ├── daemon/
+│   │   ├── __init__.py
+│   │   ├── lifecycle.py     # monsterd start/stop/status
+│   │   ├── server.py        # HTTP control API server
+│   │   └── scheduler.py     # Tick loop, schedule registry, autonomous worker
 │   ├── memory/
-│   │   ├── persistence.py   # Session store, path↔session registry
+│   │   ├── __init__.py
+│   │   ├── persistence.py   # SessionJournal (JSONL), SessionStore (registry)
 │   │   ├── vector_db.py     # Chroma semantic memory
 │   │   ├── memq_graph.py    # Entity-relation graph memory
 │   │   └── vk_cache.py      # TurboQuant KV cache lifecycle
 │   ├── skill/
+│   │   ├── __init__.py
 │   │   ├── loader.py        # Dual-path skill loader (monster + agents)
 │   │   └── registry.py      # Cached skill registry
 │   ├── cloud/
+│   │   ├── __init__.py
 │   │   ├── endpoint.py      # OpenAI-compatible cloud client
 │   │   └── router.py        # Cloud routing
 │   ├── selfmod/
+│   │   ├── __init__.py
 │   │   ├── introspect.py    # AST-based API surface discovery
 │   │   ├── patcher.py       # Dry-run/apply/rollback patches
 │   │   └── restart.py       # SIGHUP hot-reload
-│   ├── server/
-│   │   └── inference.py     # Shared OpenAICompatibleClient
+│   └── server/
+│       ├── __init__.py
+│       └── inference.py     # Shared OpenAICompatibleClient
 ├── PLAN.md                  # Architecture and implementation plan
 ├── ROADMAP.md               # Future directions
 ├── pyproject.toml           # Python package configuration
