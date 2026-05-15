@@ -12,7 +12,8 @@ class Gamma(CasteBase):
         _cfg = cfg or load_config().get("gamma", {})
         endpoint = _cfg.get("endpoint", "http://localhost:11434/v1")
         model = _cfg.get("model", "apple-foundationmodel")
-        self.client = OpenAICompatibleClient(endpoint=endpoint, model=model, timeout=15.0)
+        timeout = _cfg.get("timeout", 15.0)
+        self.client = OpenAICompatibleClient(endpoint=endpoint, model=model, timeout=timeout)
 
     def _ensure_apfel(self) -> str | None:
         from harness.caste.apfeld import ensure_apfel
