@@ -33,6 +33,46 @@ def cmd_session(args):
     print(f"γ|session|{sid[:12]}|{work_dir}", flush=True)
 
 
+def cmd_compact(args):
+    sid, work_dir = SessionStore.resolve_session(args.dir)
+    caste_tag = Caste.from_alias(args.caste or "b").name.lower()
+    from harness.memory.persistence import SessionJournal
+    journal = SessionJournal(sid, caste_tag)
+    if not journal.needs_compaction():
+        print(f"γ|compact|skipped|{journal.entry_count()} entries < 30", flush=True)
+        return
+    text = journal.build_compactable_text()
+    if text is None:
+        print("γ|compact|skipped|too few entries", flush=True)
+        return
+    cprompt = ("Condense this conversation into one paragraph preserving "
+               "key facts, decisions, results, and current state. "
+               "Drop greetings, pleasantries, and step-by-step reasoning:\n\n" + text)
+    router = Router()
+    msg = Message(
+        caste=Caste.from_alias(args.caste or "b"),
+        action=Action.INFER,
+        payload={"prompt": cprompt},
+        context_hint=ContextHint.FULL,
+        session=sid,
+    )
+    resp = router.dispatch(msg)
+    payload = resp.payload
+    if "error" in payload:
+        print(f"γ|compact|err|{payload['error']}", flush=True)
+        return
+    summary = payload.get("result", "")
+    if not summary:
+        print(f"γ|compact|err|empty summary|{journal.entry_count()} entries", flush=True)
+        return
+    count = journal.entry_count()
+    if count > 30:
+        journal.compact(summary)
+        print(f"γ|compact|ok|{journal.entry_count()} entries", flush=True)
+    else:
+        print(f"γ|compact|ok|{count} entries (auto-compacted during infer)", flush=True)
+
+
 def cmd_skills(args):
     reg = SkillRegistry()
     reg.refresh()
@@ -338,6 +378,10 @@ def main():
     models_p = sub.add_parser("models", help="List models in ~/.monster/models/")
     models_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
 
+    compact_p = sub.add_parser("compact", help="Compact session journal via summarization")
+    compact_p.add_argument("--caste", choices=["a", "b", "g", "alpha", "beta", "gamma"], default="b", help="Caste to summarize with (default beta)")
+    compact_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
+
     board_p = sub.add_parser("board", help="Kanban job board operations")
     board_sub = board_p.add_subparsers(dest="board_cmd")
 
@@ -412,6 +456,8 @@ def main():
         cmd_patch(args)
     elif args.command == "models":
         cmd_models(args)
+    elif args.command == "compact":
+        cmd_compact(args)
     elif args.command == "board":
         cmd_board(args)
     elif args.command == "daemon":

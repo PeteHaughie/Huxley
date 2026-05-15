@@ -109,6 +109,62 @@ class SessionJournal:
             used += est
         return [{"role": e["role"], "content": e["content"]} for e in selected]
 
+    def entry_count(self) -> int:
+        if not self.path.exists():
+            return 0
+        raw = self.path.read_text()
+        if not raw.strip():
+            return 0
+        count = 0
+        for line in raw.splitlines():
+            try:
+                json.loads(line)
+                count += 1
+            except json.JSONDecodeError:
+                pass
+        return count
+
+    def needs_compaction(self, threshold: int = 30) -> bool:
+        return self.entry_count() > threshold
+
+    def build_compactable_text(self, protected_count: int = 2, max_recent: int = 10) -> str | None:
+        if not self.path.exists():
+            return None
+        raw = self.path.read_text()
+        entries = []
+        for line in raw.splitlines():
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+        if len(entries) <= protected_count + max_recent + 1:
+            return None
+        compactable = entries[protected_count:-max_recent] if max_recent > 0 else entries[protected_count:]
+        if not compactable:
+            return None
+        lines = []
+        for e in compactable:
+            lines.append(f"{e['role']}: {e['content']}")
+        return "\n".join(lines)
+
+    def compact(self, summary: str, protected_count: int = 2, max_recent: int = 10):
+        if not self.path.exists():
+            return
+        raw = self.path.read_text()
+        entries = []
+        for line in raw.splitlines():
+            try:
+                entries.append(json.loads(line))
+            except json.JSONDecodeError:
+                pass
+        protected = entries[:protected_count]
+        recent = entries[-max_recent:] if max_recent > 0 else []
+        summary_entry = {"role": "system", "content": f"Previous context summary: {summary}", "ts": datetime.now(timezone.utc).isoformat()}
+        new_entries = protected + [summary_entry] + recent
+        with open(self.path, "w") as f:
+            for e in new_entries:
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
+
     def clear(self):
         if self.path.exists():
             self.path.unlink()

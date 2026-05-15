@@ -79,6 +79,8 @@ class Beta(CasteBase):
         if msg.session:
             from harness.memory.persistence import SessionJournal
             journal = SessionJournal(msg.session, "beta")
+            if journal.needs_compaction():
+                self._compact_journal(journal, msg)
             history = journal.read(max_tokens=msg.token_budget.get("input", 4096))
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": prompt}]
         max_tok = msg.token_budget.get("output", 128)
@@ -113,6 +115,30 @@ class Beta(CasteBase):
                 payload={"error": str(e)},
                 session=msg.session,
             )
+
+    def _compact_journal(self, journal, msg):
+        text = journal.build_compactable_text()
+        if text is None:
+            return
+        cprompt = f"Condense this conversation into one paragraph preserving key facts, decisions, results, and current state. Drop greetings, pleasantries, and step-by-step reasoning:\n\n{text}"
+        try:
+            self._load()
+            system = "You are a precise summarizer. Output only the summary paragraph, no preamble."
+            cmessages = [{"role": "system", "content": system}, {"role": "user", "content": cprompt}]
+            max_tok = msg.token_budget.get("output", 256)
+            if hasattr(self._tokenizer, "apply_chat_template"):
+                import mlx_lm
+                formatted = self._tokenizer.apply_chat_template(cmessages, tokenize=False, add_generation_prompt=True)
+                response = mlx_lm.generate(self._model, self._tokenizer, prompt=formatted, max_tokens=max_tok, temp=0.1, verbose=False)
+            else:
+                resp = self._model.create_chat_completion(messages=cmessages, max_tokens=max_tok, temperature=0.1, stop=None)
+                response = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+            summary = response.strip()
+            if summary:
+                journal.compact(summary)
+                print(f"γ|beta|compact|ok|{journal.entry_count()} entries", flush=True)
+        except Exception as e:
+            print(f"γ|beta|compact|err|{e}", flush=True)
 
     def health(self) -> bool:
         try:

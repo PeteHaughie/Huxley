@@ -123,6 +123,8 @@ class Alpha(CasteBase):
             history = []
             if msg.session:
                 journal = SessionJournal(msg.session, "alpha")
+                if journal.needs_compaction():
+                    self._compact_journal(journal, msg)
                 history = journal.read(max_tokens=msg.token_budget.get("input", 4096))
             messages = history + [{"role": "user", "content": user_content}]
             resp = self.client().chat(
@@ -147,6 +149,24 @@ class Alpha(CasteBase):
                 payload={"error": str(e)},
                 session=msg.session,
             )
+
+    def _compact_journal(self, journal, msg):
+        text = journal.build_compactable_text()
+        if text is None:
+            return
+        cprompt = f"Condense this conversation into one paragraph preserving key facts, decisions, results, and current state. Drop greetings, pleasantries, and step-by-step reasoning:\n\n{text}"
+        try:
+            resp = self.client().chat(
+                messages=[{"role": "system", "content": "You are a precise summarizer. Output only the summary paragraph, no preamble."}, {"role": "user", "content": cprompt}],
+                max_tokens=msg.token_budget.get("output", 256),
+                temperature=0.1,
+            )
+            summary = resp["choices"][0]["message"]["content"].strip()
+            if summary:
+                journal.compact(summary)
+                print(f"γ|alpha|compact|ok|{journal.entry_count()} entries", flush=True)
+        except Exception as e:
+            print(f"γ|alpha|compact|err|{e}", flush=True)
 
     def health(self) -> bool:
         try:
