@@ -132,7 +132,8 @@ class Alpha(CasteBase):
                 max_tokens=msg.token_budget.get("output", 2048),
                 temperature=0.1,
             )
-            content = resp["choices"][0]["message"]["content"]
+            msg_content = resp["choices"][0]["message"]
+            content = msg_content.get("content", "") or msg_content.get("reasoning_content", "")
             if msg.session:
                 journal.append("user", user_content)
                 journal.append("assistant", content)
