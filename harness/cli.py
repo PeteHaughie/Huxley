@@ -245,6 +245,46 @@ def cmd_swarm(args):
         print(f"γ|swarm|announce|done|ifaces={_lan_ips()}:{port}", flush=True)
 
 
+def cmd_project(args):
+    if args.proj_cmd == "list":
+        from harness.projects import list_projects
+        projects = list_projects()
+        if not projects:
+            print("γ|project|list|none", flush=True)
+            return
+        for p in projects:
+            print(f"γ|project|{p['dir']}|{p['title'][:50]}|tasks={p['task_count']}|result={p['result_len']}b", flush=True)
+    elif args.proj_cmd == "show":
+        from harness.projects import get_project
+        p = get_project(args.name)
+        if p is None:
+            print(f"γ|project|not_found|{args.name}", flush=True)
+            return
+        print(f"γ|project|title|{p['title']}", flush=True)
+        print(f"γ|project|dir|{p['dir']}", flush=True)
+        print(f"γ|project|prompt|{p.get('prompt','')[:100]}", flush=True)
+        print(f"γ|project|summary_len|{p['result_len']}b", flush=True)
+        for t in p.get("tasks", []):
+            icon = "●" if t["unit_count"] > 0 else "○"
+            print(f"γ|project|task|{icon}|{t['id']}|{t['title'][:60]}|units={t['unit_count']}", flush=True)
+            for u in t.get("units", []):
+                print(f"γ|project|unit|  |{u['id']}|{u['title'][:50]}", flush=True)
+    elif args.proj_cmd == "path":
+        from harness.projects import get_project
+        p = get_project(args.name)
+        if p is None:
+            print(f"γ|project|not_found|{args.name}", flush=True)
+            return
+        print(p["path"], flush=True)
+    elif args.proj_cmd == "summary":
+        from harness.projects import get_project
+        p = get_project(args.name)
+        if p is None:
+            print(f"γ|project|not_found|{args.name}", flush=True)
+            return
+        print(p.get("summary", "(no summary)"), flush=True)
+
+
 def cmd_schedule(args):
     if args.sched_cmd == "list":
         data = _daemon_api("GET", "/v1/schedules")
@@ -502,6 +542,16 @@ def main():
     announce_p = swarm_sub.add_parser("announce", help="Send immediate announce packet")
     announce_p.add_argument("--port", type=int, default=None, help="Daemon port to announce")
 
+    proj_p = sub.add_parser("project", help="Browse completed project artefacts")
+    proj_sub = proj_p.add_subparsers(dest="proj_cmd")
+    proj_sub.add_parser("list", help="List completed projects")
+    show_p = proj_sub.add_parser("show", help="Show project details")
+    show_p.add_argument("name", help="Project directory name (partial match)")
+    path_p = proj_sub.add_parser("path", help="Print project filesystem path")
+    path_p.add_argument("name", help="Project directory name (partial match)")
+    summary_p = proj_sub.add_parser("summary", help="Print project summary.md")
+    summary_p.add_argument("name", help="Project directory name (partial match)")
+
     args = parser.parse_args()
     if args.command == "init":
         cmd_init(args)
@@ -531,5 +581,7 @@ def main():
         cmd_schedule(args)
     elif args.command == "swarm":
         cmd_swarm(args)
+    elif args.command == "project":
+        cmd_project(args)
     else:
         parser.print_help()

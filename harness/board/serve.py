@@ -5,6 +5,7 @@ import http.server
 import urllib.parse
 from pathlib import Path
 from harness.board.core import JobBoard, Task, Level, State
+from harness.projects import list_projects
 
 PORT = int(os.environ.get("MONSTER_BOARD_PORT", "8080"))
 BOARD_DIR = Path(os.environ.get("MONSTER_BOARD_DIR", str(Path.home() / ".monster" / "board")))
@@ -144,6 +145,7 @@ async function showDetail(id) {
     <div class="field"><label>caste</label><div>${t.caste || "—"}</div></div>
     ${t.prompt ? `<div class="field"><label>prompt</label><div class="prompt">${esc(t.prompt)}</div></div>` : ""}
     ${t.result ? `<div class="field"><label>result</label><div class="result">${esc(t.result)}</div></div>` : ""}
+    <div id="project-link"></div>
     <div class="field"><label>created</label><div style="font-size:0.75rem;color:#888">${t.created}</div></div>
     <div class="field"><label>updated</label><div style="font-size:0.75rem;color:#888">${t.updated}</div></div>
     <div class="btn-row">
@@ -151,6 +153,14 @@ async function showDetail(id) {
       <button class="btn btn-secondary" onclick="closeModal()">close</button>
     </div>`;
   document.getElementById("modal").classList.add("open");
+  if (t.level === "epic" && t.state === "done") {
+    try {
+      const proj = await api("GET", "/project-for/" + t.id);
+      if (proj && proj.path) {
+        document.getElementById("project-link").innerHTML = `<div class="field"><label>archive</label><div style="font-size:0.75rem;color:#6c5ce7">${esc(proj.path)}</div></div>`;
+      }
+    } catch (_) {}
+  }
 }
 
 function showNewTask() {
@@ -224,6 +234,8 @@ class BoardHandler(http.server.BaseHTTPRequestHandler):
         path, qs = self._path_parts()
         if path == "/":
             self._send(KANBAN_HTML, ctype="text/html; charset=utf-8")
+        elif path == "/api/projects":
+            self._send(list_projects())
         elif path == "/api/tasks":
             board = JobBoard()
             level = qs.get("level", [None])[0]
@@ -232,6 +244,24 @@ class BoardHandler(http.server.BaseHTTPRequestHandler):
             state_enum = State(state) if state and state in [e.value for e in State] else None
             items = [t.to_dict() for t in board.list(level=level_enum, state=state_enum)]
             self._send(items)
+        elif path.startswith("/api/project-for/"):
+            task_id = path.split("/api/project-for/")[1]
+            board = JobBoard()
+            t = board.get(task_id)
+            if t is None:
+                self._send({"error": "not found"}, 404)
+                return
+            project_tag = [tag for tag in t.tags if tag.startswith("project:")]
+            if not project_tag:
+                self._send({"project": None})
+                return
+            dirname = project_tag[0].split(":", 1)[1]
+            from harness.projects import get_project
+            p = get_project(dirname)
+            if p:
+                self._send(p)
+            else:
+                self._send({"error": "project not found"}, 404)
         elif path.startswith("/api/tasks/"):
             task_id = path.split("/api/tasks/")[1]
             board = JobBoard()

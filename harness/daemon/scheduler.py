@@ -338,6 +338,14 @@ class SchedulerEngine:
         done = [c for c in children if c.state == State.DONE]
         if len(done) < len(children):
             return
+        review_attempts = task.tags.count("reviewed") + 1
+        if review_attempts >= 3:
+            compiled = "\n\n".join(
+                f"## {c.title}\n{c.result or '(no result)'}" for c in done
+            )
+            board.complete(task.id, compiled)
+            print(f"γ|worker|beta_review_force|{task.id[:8]}|auto-accept after {review_attempts}", flush=True)
+            return
         compiled = "\n\n".join(
             f"## {c.title}\n{c.result or '(no result)'}" for c in done
         )
@@ -353,13 +361,17 @@ class SchedulerEngine:
             board.complete(task.id, final or compiled)
             print(f"γ|worker|beta_review_accept|{task.id[:8]}", flush=True)
         else:
+            task.tags = task.tags + ["reviewed"]
+            board.update(task)
             rejected = [c for c in done if c.title.split()[0].lower() in review.lower()]
             if not rejected:
                 rejected = done[:1]
             for c in rejected:
+                c.tags = c.tags + ["rework"]
+                c.prompt = f"[Review feedback: {review[:200].strip()}]\n\n{c.prompt or c.title}"
                 c.transition(State.BACKLOG)
                 board.update(c)
-            print(f"γ|worker|beta_review_reject|{task.id[:8]}|{len(rejected)} rework", flush=True)
+            print(f"γ|worker|beta_review_reject|{task.id[:8]}|{len(rejected)} rework|attempt={review_attempts}", flush=True)
 
     def _escalation_check(self, board: JobBoard):
         for task in board.list(level=Level.TASK, state=State.IN_PROGRESS):
@@ -381,7 +393,14 @@ class SchedulerEngine:
                     f"## {c.title}\n{c.result or '(no result)'}" for c in done
                 )
                 board.complete(task.id, compiled)
-                print(f"γ|worker|escalate|{task.id[:8]}|epic→done", flush=True)
+                epic = board.get(task.id)
+                if epic is None:
+                    return
+                from harness.projects import archive_epic
+                proj_dir = archive_epic(epic, board)
+                epic.tags.append(f"project:{proj_dir.name}")
+                board.update(epic)
+                print(f"γ|worker|escalate|{task.id[:8]}|epic→done|project={proj_dir.name}", flush=True)
 
     def _tick(self):
         board = JobBoard()
