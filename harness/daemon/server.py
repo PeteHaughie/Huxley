@@ -137,9 +137,9 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
 def run_daemon(port: int = DAEMON_PORT):
     _ensure_scheduler_dir()
     _scheduler.start()
-    addr = ("127.0.0.1", port)
+    addr = ("0.0.0.0", port)
     server = http.server.HTTPServer(addr, DaemonHandler)
-    print(f"γ|monsterd|listen|http://127.0.0.1:{port}", flush=True)
+    print(f"γ|monsterd|listen|http://0.0.0.0:{port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
