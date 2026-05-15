@@ -7,7 +7,11 @@ from harness.server.inference import OpenAICompatibleClient
 class Gamma(CasteBase):
     caste = Caste.GAMMA
 
-    def __init__(self, endpoint: str = "http://localhost:11434/v1", model: str = "apple-foundationmodel"):
+    def __init__(self, cfg: dict | None = None):
+        from harness.config import load_config
+        _cfg = cfg or load_config().get("gamma", {})
+        endpoint = _cfg.get("endpoint", "http://localhost:11434/v1")
+        model = _cfg.get("model", "apple-foundationmodel")
         self.client = OpenAICompatibleClient(endpoint=endpoint, model=model, timeout=15.0)
 
     def infer(self, msg: Message) -> Message:

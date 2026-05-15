@@ -48,7 +48,10 @@ class Beta(CasteBase):
                 errs.append(f"llamacpp({self.primary_model}): {e}")
         if self.fallback_model:
             try:
-                return self._load_llamacpp(self.fallback_model)
+                if self.fallback_engine == "mlx":
+                    return self._load_mlx()
+                else:
+                    return self._load_llamacpp(self.fallback_model)
             except Exception as e:
                 errs.append(f"fallback({self.fallback_model}): {e}")
         raise RuntimeError(" | ".join(errs))
