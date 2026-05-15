@@ -215,6 +215,7 @@ class DiscoveryService:
         self._sock: Optional[socket.socket] = None
         self._hostname = socket.gethostname()
         self._local_ips = _lan_ips()
+        self._self_ports = {daemon_port}
         self._instance_id = uuid.uuid4().hex[:12]
 
     def start(self):
@@ -308,8 +309,13 @@ class DiscoveryService:
             try:
                 data, addr = self._sock.recvfrom(BUFFER_SIZE)
                 info = _parse_announce(data, addr)
-                if info and info.get("instance_id", "") != self._instance_id:
-                    self._peers.add(info)
+                if info:
+                    same_id = info.get("instance_id", "") == self._instance_id
+                    local_port = info["port"] in self._self_ports
+                    local_ip = info["addr"] in self._local_ips
+                    is_self = same_id or (local_ip and local_port)
+                    if not is_self:
+                        self._peers.add(info)
             except socket.timeout:
                 continue
             except OSError:
