@@ -272,6 +272,21 @@ class SchedulerEngine:
             raise RuntimeError(resp.payload["error"])
         return resp.payload.get("result", "")
 
+    def infer(self, prompt: str, level: str, max_output: int = 512) -> str:
+        return self._infer(prompt, level, max_output)
+
+    def execute_task(self, title: str, prompt: str) -> dict:
+        triage_result = self._infer(prompt or title, Level.TASK.value)
+        steps = self._parse_bullets(triage_result)
+        if not steps or len(steps) < 2:
+            return {"task_result": triage_result, "units": []}
+        units = []
+        for step in steps:
+            unit_result = self._infer(step, Level.UNIT.value)
+            units.append({"title": step[:80], "result": unit_result})
+        compiled = "\n\n".join(f"## {s}\n{u['result']}" for s, u in zip(steps, units))
+        return {"task_result": compiled, "units": units}
+
     def _parse_bullets(self, text: str) -> list[str]:
         import re
         text = text.strip()
@@ -329,9 +344,54 @@ class SchedulerEngine:
         print(f"γ|worker|beta_triage|{task.id[:8]}|{len(steps)} units", flush=True)
 
     def _gamma_execute(self, task: Task, board: JobBoard):
+        from harness.config import load_config
+        cfg = load_config()
+        delegation = cfg.get("swarm", {}).get("delegation", {})
+        if delegation.get("enabled", True):
+            max_load = delegation.get("max_load", 5)
+            peer = self._select_peer("βγ", max_load)
+            if peer and task.parent_id:
+                parent = board.get(task.parent_id)
+                if parent:
+                    resp = self._delegate_to_peer(peer, "/v1/tasks/execute",
+                                                  {"title": parent.title, "prompt": parent.prompt})
+                    if resp and "task_result" in resp:
+                        for child in board.children_of(parent.id):
+                            board.delete(child.id)
+                        board.complete(parent.id, resp["task_result"])
+                        for u in resp.get("units", []):
+                            child = Task(level=Level.UNIT, title=u["title"][:80],
+                                         prompt=u["title"], parent_id=parent.id,
+                                         state=State.DONE, result=u["result"])
+                            board.create(child)
+                        print(f"γ|worker|delegate|{peer}|{parent.id[:8]}|task", flush=True)
+                        return
+            peer = self._select_peer("γ", max_load)
+            if peer:
+                resp = self._delegate_to_peer(peer, "/v1/units/execute",
+                                              {"prompt": task.prompt or task.title})
+                if resp and "result" in resp:
+                    board.complete(task.id, resp["result"])
+                    print(f"γ|worker|delegate|{peer}|{task.id[:8]}|unit", flush=True)
+                    return
+            print(f"γ|worker|delegate_fallback|{task.id[:8]}|local", flush=True)
         result = self._infer(task.prompt or task.title, Level.UNIT.value)
         board.complete(task.id, result)
         print(f"γ|worker|gamma_done|{task.id[:8]}", flush=True)
+
+    def _select_peer(self, required_castes: str, max_load: int) -> Optional[str]:
+        candidates = [p for p in _peer_table.list_active()
+                      if all(c in p.castes for c in required_castes)
+                      and p.load < max_load]
+        if not candidates:
+            return None
+        best = min(candidates, key=lambda p: p.load)
+        return f"{best.addr}:{best.port}"
+
+    def _delegate_to_peer(self, peer_key: str, path: str, body: dict) -> Optional[dict]:
+        from harness.comms.remote import post_to_peer
+        addr, port_str = peer_key.rsplit(":", 1)
+        return post_to_peer(addr, int(port_str), path, body)
 
     def _compile_project_files(self, epic: Task, board: JobBoard, proj_dir: Path):
         import re

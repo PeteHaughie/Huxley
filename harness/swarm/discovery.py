@@ -220,7 +220,13 @@ class DiscoveryService:
 
     def _announce_all(self):
         try:
-            data = _build_announce(self._hostname, self.daemon_port)
+            from harness.board import JobBoard, State
+            board = JobBoard()
+            load = float(len(board.list(state=State.IN_PROGRESS)))
+        except Exception:
+            load = 0.0
+        try:
+            data = _build_announce(self._hostname, self.daemon_port, load=load)
             for ip in self._local_ips:
                 try:
                     self._sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))

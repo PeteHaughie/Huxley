@@ -58,6 +58,10 @@ DEFAULT_CONFIG = {
         "multicast_port": 43210,
         "announce_interval": 30,
         "stale_timeout": 90,
+        "delegation": {
+            "enabled": True,
+            "max_load": 5,
+        },
     },
     "harness": {
         "context_hint": "caveman",

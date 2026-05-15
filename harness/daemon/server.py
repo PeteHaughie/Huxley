@@ -4,6 +4,7 @@ import threading
 import http.server
 import urllib.parse
 from harness.daemon.scheduler import SchedulerEngine, Schedule, _ensure_scheduler_dir, _peer_table
+from harness.board import JobBoard, State
 
 DAEMON_PORT = int(os.environ.get("MONSTERD_PORT", "8083"))
 
@@ -62,6 +63,9 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             self._send([p.to_dict() for p in _peer_table.list_active()])
         elif path == "/v1/swarm/peers/all":
             self._send([p.to_dict() for p in _peer_table.list_all()])
+        elif path == "/v1/load":
+            board = JobBoard()
+            self._send({"load": len(board.list(state=State.IN_PROGRESS))})
         elif path == "/v1/swarm/status":
             from harness.swarm.discovery import _lan_ips
             import socket
@@ -90,6 +94,20 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             )
             _scheduler.add_schedule(s)
             self._send(s.to_dict(), 201)
+        elif path == "/v1/units/execute":
+            body = self._read_body()
+            try:
+                result = _scheduler.infer(body.get("prompt", ""), "unit")
+                self._send({"result": result})
+            except Exception as e:
+                self._send({"error": str(e)}, 500)
+        elif path == "/v1/tasks/execute":
+            body = self._read_body()
+            try:
+                result = _scheduler.execute_task(body.get("title", ""), body.get("prompt", ""))
+                self._send(result)
+            except Exception as e:
+                self._send({"error": str(e)}, 500)
         elif path == "/v1/shutdown":
             _scheduler.stop()
             self._send({"status": "stopping"})
