@@ -5,7 +5,7 @@ import tempfile
 from pathlib import Path
 from typing import Optional
 
-PATCH_DIR = Path.home() / ".monster" / "patches"
+PATCH_DIR = Path.home() / ".huxley" / "patches"
 
 
 class Patcher:

@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 
 from harness import __version__
-from harness.config import load_config, ensure_monster_dirs, MONSTER_MODELS_DIR, resolve_path
+from harness.config import load_config, ensure_huxley_dirs, HUXLEY_MODELS_DIR, resolve_path
 from harness.memory import SessionStore
 from harness.comms import Message, Caste, Action, ContextHint
 from harness.comms.router import Router
@@ -19,12 +19,12 @@ from harness.daemon.lifecycle import start_daemon, stop_daemon, daemon_status, i
 
 
 def cmd_init(args):
-    ensure_monster_dirs()
+    ensure_huxley_dirs()
     sid, work_dir = SessionStore.resolve_session(args.dir)
-    dot_monster = work_dir / ".monster"
-    target = Path.home() / ".monster" / "sessions" / sid
-    if not dot_monster.exists():
-        dot_monster.symlink_to(target, target_is_directory=True)
+    dot_huxley = work_dir / ".huxley"
+    target = Path.home() / ".huxley" / "sessions" / sid
+    if not dot_huxley.exists():
+        dot_huxley.symlink_to(target, target_is_directory=True)
     print(f"γ|init|{sid[:12]}|{work_dir}", flush=True)
 
 
@@ -139,7 +139,7 @@ def cmd_patch(args):
 
 
 def cmd_models(args):
-    mp = Path(resolve_path("~/.monster/models"))
+    mp = Path(resolve_path("~/.huxley/models"))
     if not mp.exists():
         print("γ|models|none", flush=True)
         return
@@ -159,18 +159,18 @@ def cmd_daemon(args):
     if args.daemon_cmd == "start":
         ok = start_daemon()
         if ok:
-            print("γ|monsterd|start|ok", flush=True)
+            print("γ|huxleyd|start|ok", flush=True)
         else:
-            print("γ|monsterd|start|already_running" if is_running() else "γ|monsterd|start|fail", flush=True)
+            print("γ|huxleyd|start|already_running" if is_running() else "γ|huxleyd|start|fail", flush=True)
     elif args.daemon_cmd == "stop":
         ok = stop_daemon()
-        print("γ|monsterd|stop|ok" if ok else "γ|monsterd|stop|not_running", flush=True)
+        print("γ|huxleyd|stop|ok" if ok else "γ|huxleyd|stop|not_running", flush=True)
     elif args.daemon_cmd == "status":
         st = daemon_status()
         if st["running"]:
-            print(f"γ|monsterd|running|scheduler={st.get('scheduler_running', False)}|schedules={st.get('schedules', 0)}", flush=True)
+            print(f"γ|huxleyd|running|scheduler={st.get('scheduler_running', False)}|schedules={st.get('schedules', 0)}", flush=True)
         else:
-            print("γ|monsterd|stopped", flush=True)
+            print("γ|huxleyd|stopped", flush=True)
 
 
 # -- schedule commands --
@@ -435,14 +435,14 @@ def _board_delete(board: JobBoard, args):
 
 def main():
     parser = argparse.ArgumentParser(
-        prog="monster",
-        description="1BitMonster — hyper-efficient local-first AI agent harness",
+        prog="huxley",
+        description="Huxley — hyper-efficient local-first AI agent harness",
     )
     parser.add_argument("--version", action="version", version=__version__)
 
     sub = parser.add_subparsers(dest="command")
 
-    init_p = sub.add_parser("init", help="Init .monster session in directory")
+    init_p = sub.add_parser("init", help="Init .huxley session in directory")
     init_p.add_argument("--dir", default=None, help="Target directory")
 
     session_p = sub.add_parser("session", help="Show current session info")
@@ -472,7 +472,7 @@ def main():
     patch_p.add_argument("--apply", dest="dry_run", action="store_false", help="Apply the patch")
     patch_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
 
-    models_p = sub.add_parser("models", help="List models in ~/.monster/models/")
+    models_p = sub.add_parser("models", help="List models in ~/.huxley/models/")
     models_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
 
     compact_p = sub.add_parser("compact", help="Compact session journal via summarization")
@@ -512,11 +512,11 @@ def main():
     board_serve_sub.add_parser("stop", help="Stop board daemon")
     board_serve_sub.add_parser("status", help="Check if board daemon is running")
 
-    daemon_p = sub.add_parser("daemon", help="Control the monster background daemon")
+    daemon_p = sub.add_parser("daemon", help="Control the huxley background daemon")
     daemon_sub = daemon_p.add_subparsers(dest="daemon_cmd")
-    daemon_sub.add_parser("start", help="Start monsterd in background")
-    daemon_sub.add_parser("stop", help="Stop monsterd")
-    daemon_sub.add_parser("status", help="Check if monsterd is running")
+    daemon_sub.add_parser("start", help="Start huxleyd in background")
+    daemon_sub.add_parser("stop", help="Stop huxleyd")
+    daemon_sub.add_parser("status", help="Check if huxleyd is running")
 
     sched_p = sub.add_parser("schedule", help="Manage scheduled tasks")
     sched_sub = sched_p.add_subparsers(dest="sched_cmd")

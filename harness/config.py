@@ -2,21 +2,21 @@ import os
 import yaml
 from pathlib import Path
 
-MONSTER_HOME = Path.home() / ".monster"
-MONSTER_SKILLS_DIR = MONSTER_HOME / "skills"
-MONSTER_MODELS_DIR = MONSTER_HOME / "models"
-MONSTER_BOARD_DIR = MONSTER_HOME / "board"
-MONSTER_SCHEDULER_DIR = MONSTER_HOME / "scheduler"
-MONSTER_PROJECTS_DIR = MONSTER_HOME / "projects"
-DEFAULT_CONFIG_PATH = MONSTER_HOME / "config.yaml"
-REGISTRY_PATH = MONSTER_HOME / "registry.json"
-SESSIONS_DIR = MONSTER_HOME / "sessions"
+HUXLEY_HOME = Path.home() / ".huxley"
+HUXLEY_SKILLS_DIR = HUXLEY_HOME / "skills"
+HUXLEY_MODELS_DIR = HUXLEY_HOME / "models"
+HUXLEY_BOARD_DIR = HUXLEY_HOME / "board"
+HUXLEY_SCHEDULER_DIR = HUXLEY_HOME / "scheduler"
+HUXLEY_PROJECTS_DIR = HUXLEY_HOME / "projects"
+DEFAULT_CONFIG_PATH = HUXLEY_HOME / "config.yaml"
+REGISTRY_PATH = HUXLEY_HOME / "registry.json"
+SESSIONS_DIR = HUXLEY_HOME / "sessions"
 
 DEFAULT_CONFIG = {
     "alpha": {
         "engine": "llama.cpp",
-        "model": "~/.monster/models/gemma-4-E4B-it-Q4_K_M.gguf",
-        "draft_model": "~/.monster/models/gemma-4-E4B-it-assistant-Q4_K_M.gguf",
+        "model": "~/.huxley/models/gemma-4-E4B-it-Q4_K_M.gguf",
+        "draft_model": "~/.huxley/models/gemma-4-E4B-it-assistant-Q4_K_M.gguf",
         "cache_type_k": "q4_0",
         "cache_type_v": "q4_0",
         "ctx_size": 32768,
@@ -27,7 +27,7 @@ DEFAULT_CONFIG = {
     },
     "beta": {
         "engine": "llama.cpp",
-        "model": "~/.monster/models/Bonsai-8B.gguf",
+        "model": "~/.huxley/models/Bonsai-8B.gguf",
         "ctx_size": 8192,
         "fallback_engine": "mlx",
         "fallback_model": "prism-ml/Ternary-Bonsai-8B",
@@ -46,7 +46,7 @@ DEFAULT_CONFIG = {
     "daemon": {
         "enabled": False,
         "port": 8083,
-        "log_file": "~/.monster/monsterd.log",
+        "log_file": "~/.huxley/huxleyd.log",
     },
     "scheduler": {
         "enabled": True,
@@ -66,7 +66,7 @@ DEFAULT_CONFIG = {
     },
     "harness": {
         "context_hint": "caveman",
-        "models_dir": "~/.monster/models",
+        "models_dir": "~/.huxley/models",
         "log_level": "INFO",
         "session_timeout": 3600,
     },
@@ -77,11 +77,11 @@ def resolve_path(p: str) -> str:
     return str(Path(p).expanduser().resolve())
 
 
-def ensure_monster_dirs():
-    MONSTER_HOME.mkdir(parents=True, exist_ok=True)
-    MONSTER_SKILLS_DIR.mkdir(exist_ok=True)
-    MONSTER_MODELS_DIR.mkdir(exist_ok=True)
-    MONSTER_BOARD_DIR.mkdir(exist_ok=True)
+def ensure_huxley_dirs():
+    HUXLEY_HOME.mkdir(parents=True, exist_ok=True)
+    HUXLEY_SKILLS_DIR.mkdir(exist_ok=True)
+    HUXLEY_MODELS_DIR.mkdir(exist_ok=True)
+    HUXLEY_BOARD_DIR.mkdir(exist_ok=True)
     SESSIONS_DIR.mkdir(parents=True, exist_ok=True)
     if not DEFAULT_CONFIG_PATH.exists():
         with open(DEFAULT_CONFIG_PATH, "w") as f:
@@ -89,7 +89,7 @@ def ensure_monster_dirs():
 
 
 def load_config() -> dict:
-    ensure_monster_dirs()
+    ensure_huxley_dirs()
     if not DEFAULT_CONFIG_PATH.exists():
         with open(DEFAULT_CONFIG_PATH, "w") as f:
             yaml.dump(DEFAULT_CONFIG, f, default_flow_style=False)
@@ -151,6 +151,6 @@ def _repair_legacy_model_aliases(cfg: dict) -> bool:
 
 
 def save_config(cfg: dict):
-    ensure_monster_dirs()
+    ensure_huxley_dirs()
     with open(DEFAULT_CONFIG_PATH, "w") as f:
         yaml.dump(cfg, f, default_flow_style=False)

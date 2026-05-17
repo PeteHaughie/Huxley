@@ -4,7 +4,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from typing import Optional
 
-from harness.config import MONSTER_PROJECTS_DIR
+from harness.config import HUXLEY_PROJECTS_DIR
 from harness.board import JobBoard, Task
 
 
@@ -16,10 +16,10 @@ def _slug(text: str, max_len: int = 48) -> str:
 
 
 def archive_epic(epic: Task, board: JobBoard) -> Path:
-    MONSTER_PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+    HUXLEY_PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
     slug = _slug(epic.title)
     ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
-    proj_dir = MONSTER_PROJECTS_DIR / f"{ts}-{slug}"
+    proj_dir = HUXLEY_PROJECTS_DIR / f"{ts}-{slug}"
     proj_dir.mkdir(parents=True, exist_ok=True)
 
     _write_json(proj_dir / "epic.json", epic)
@@ -51,9 +51,9 @@ def archive_epic(epic: Task, board: JobBoard) -> Path:
 
 
 def list_projects() -> list[dict]:
-    MONSTER_PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+    HUXLEY_PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
     projects = []
-    for d in sorted(MONSTER_PROJECTS_DIR.iterdir(), reverse=True):
+    for d in sorted(HUXLEY_PROJECTS_DIR.iterdir(), reverse=True):
         if not d.is_dir():
             continue
         epath = d / "epic.json"
@@ -84,8 +84,8 @@ def list_projects() -> list[dict]:
 
 
 def get_project(name: str) -> Optional[dict]:
-    MONSTER_PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
-    for d in MONSTER_PROJECTS_DIR.iterdir():
+    HUXLEY_PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
+    for d in HUXLEY_PROJECTS_DIR.iterdir():
         if not d.is_dir() or name not in d.name:
             continue
         epath = d / "epic.json"

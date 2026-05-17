@@ -2,15 +2,15 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-from harness.config import MONSTER_SKILLS_DIR
+from harness.config import HUXLEY_SKILLS_DIR
 
 AGENTS_SKILLS_DIR = Path.home() / ".agents" / "skills"
 
 
 def _skill_dirs() -> list[Path]:
     dirs = []
-    if MONSTER_SKILLS_DIR.exists():
-        dirs.append(MONSTER_SKILLS_DIR)
+    if HUXLEY_SKILLS_DIR.exists():
+        dirs.append(HUXLEY_SKILLS_DIR)
     if AGENTS_SKILLS_DIR.exists():
         dirs.append(AGENTS_SKILLS_DIR)
     return dirs
@@ -27,7 +27,7 @@ def _scan_dir(dir_path: Path) -> list[dict]:
                     "name": entry.name,
                     "path": str(skill_path),
                     "description": frontmatter.get("description", ""),
-                    "source": "monster" if dir_path == MONSTER_SKILLS_DIR else "agents",
+                    "source": "huxley" if dir_path == HUXLEY_SKILLS_DIR else "agents",
                 })
     return skills
 

@@ -7,8 +7,8 @@ from pathlib import Path
 from harness.board.core import JobBoard, Task, Level, State
 from harness.projects import list_projects
 
-PORT = int(os.environ.get("MONSTER_BOARD_PORT", "8080"))
-BOARD_DIR = Path(os.environ.get("MONSTER_BOARD_DIR", str(Path.home() / ".monster" / "board")))
+PORT = int(os.environ.get("HUXLEY_BOARD_PORT", "8080"))
+BOARD_DIR = Path(os.environ.get("HUXLEY_BOARD_DIR", str(Path.home() / ".huxley" / "board")))
 
 ICONS = {"backlog": "○", "ready": "◉", "in_progress": "◎", "blocked": "⊘", "done": "●", "archived": "·"}
 LEVEL_COLORS = {"epic": "#6c5ce7", "task": "#00b894", "unit": "#fdcb6e"}
@@ -18,7 +18,7 @@ KANBAN_HTML = """<!DOCTYPE html>
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>monster board</title>
+<title>huxley board</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 body { font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; background:#1a1a2e; color:#eee; padding:20px; }
@@ -54,7 +54,7 @@ h1 span { color:#6c5ce7; }
 .btn-danger { background:#e74c3c; color:#fff; }
 .btn-danger:hover { background:#ff5e4a; }
 .toolbar { display:flex; gap:8px; margin-bottom:16px; align-items:center; }
-.toolbar .status { font-size:0.75rem; color:#555; margin-left:auto; }
+.toolbar .status { font-size:0.75rem; color:#8888aa; margin-left:auto; }
 .prompt { font-size:0.8rem; color:#aaa; background:#1a1a2e; padding:8px; border-radius:4px; margin:8px 0; white-space:pre-wrap; }
 .result { font-size:0.8rem; color:#00b894; background:#1a2a1e; padding:8px; border-radius:4px; margin:8px 0; white-space:pre-wrap; }
 .result-preview { font-size:0.7rem; color:#00b894; background:#1a2a1e; padding:4px 6px; border-radius:3px; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
@@ -62,9 +62,10 @@ h1 span { color:#6c5ce7; }
 </style>
 </head>
 <body>
-<h1>monster <span>board</span></h1>
+<h1>huxley <span>board</span></h1>
 <div class="toolbar">
   <button class="btn btn-primary" onclick="showNewTask()">+ new task</button>
+  <button class="btn btn-danger" onclick="clearBoard()">clear board</button>
   <span class="status" id="status">—</span>
 </div>
 <div class="board" id="board"></div>
@@ -92,7 +93,11 @@ async function api(method, path, body) {
 async function load() {
   tasks = await api("GET", "/tasks");
   render();
-  document.getElementById("status").textContent = new Date().toLocaleTimeString();
+  setStatus(`synced ${new Date().toLocaleTimeString()}`);
+}
+
+function setStatus(text) {
+  document.getElementById("status").textContent = text;
 }
 
 function render() {
@@ -193,6 +198,14 @@ async function deleteTask(id) {
   await api("DELETE", "/tasks/" + id);
   closeModal();
   await load();
+}
+
+async function clearBoard() {
+  if (!confirm("clear the entire board? this deletes every task.")) return;
+  const res = await api("DELETE", "/tasks");
+  closeModal();
+  await load();
+  setStatus(`cleared ${res.removed} task${res.removed === 1 ? "" : "s"}`);
 }
 function closeModal() { document.getElementById("modal").classList.remove("open"); }
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
@@ -319,7 +332,11 @@ class BoardHandler(http.server.BaseHTTPRequestHandler):
 
     def do_DELETE(self):
         path, _ = self._path_parts()
-        if path.startswith("/api/tasks/"):
+        if path == "/api/tasks":
+            board = JobBoard()
+            removed = board.clear()
+            self._send({"status": "cleared", "removed": removed})
+        elif path.startswith("/api/tasks/"):
             task_id = path.split("/api/tasks/")[1]
             board = JobBoard()
             if board.delete(task_id):

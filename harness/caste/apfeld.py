@@ -7,11 +7,11 @@ import subprocess
 import urllib.request
 import urllib.error
 from pathlib import Path
-from harness.config import MONSTER_HOME
+from harness.config import HUXLEY_HOME
 
 APFELD_PORT = int(os.environ.get("APFELD_PORT", "11434"))
-PID_PATH = MONSTER_HOME / "apfeld.pid"
-LOG_PATH = MONSTER_HOME / "apfeld.log"
+PID_PATH = HUXLEY_HOME / "apfeld.pid"
+LOG_PATH = HUXLEY_HOME / "apfeld.log"
 
 
 def _apfel_url(path: str = "/v1/models") -> str:

@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Optional
 
-from harness.config import MONSTER_BOARD_DIR
+from harness.config import HUXLEY_BOARD_DIR
 
 
 class Level(str, Enum):
@@ -116,13 +116,13 @@ class Task:
 
 class JobBoard:
     def __init__(self):
-        MONSTER_BOARD_DIR.mkdir(parents=True, exist_ok=True)
+        HUXLEY_BOARD_DIR.mkdir(parents=True, exist_ok=True)
 
     # -- path helpers --
 
     @staticmethod
     def _task_path(task_id: str) -> Path:
-        return MONSTER_BOARD_DIR / f"{task_id}.json"
+        return HUXLEY_BOARD_DIR / f"{task_id}.json"
 
     # -- CRUD --
 
@@ -139,7 +139,7 @@ class JobBoard:
         if path.exists():
             with open(path) as f:
                 return Task.from_dict(json.load(f))
-        for p in MONSTER_BOARD_DIR.glob("*.json"):
+        for p in HUXLEY_BOARD_DIR.glob("*.json"):
             if p.stem.startswith(task_id):
                 with open(p) as f:
                     return Task.from_dict(json.load(f))
@@ -155,17 +155,24 @@ class JobBoard:
         if path.exists():
             path.unlink()
             return True
-        for p in MONSTER_BOARD_DIR.glob("*.json"):
+        for p in HUXLEY_BOARD_DIR.glob("*.json"):
             if p.stem.startswith(task_id):
                 p.unlink()
                 return True
         return False
 
+    def clear(self) -> int:
+        removed = 0
+        for path in list(HUXLEY_BOARD_DIR.glob("*.json")):
+            path.unlink()
+            removed += 1
+        return removed
+
     # -- query --
 
     def list(self, level: Optional[Level] = None, state: Optional[State] = None) -> list[Task]:
         tasks = []
-        for p in sorted(MONSTER_BOARD_DIR.glob("*.json")):
+        for p in sorted(HUXLEY_BOARD_DIR.glob("*.json")):
             with open(p) as f:
                 t = Task.from_dict(json.load(f))
             if level is not None and t.level != level:

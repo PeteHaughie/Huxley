@@ -15,8 +15,8 @@ from harness.comms.message import Message, Caste, Action, ContextHint
 if TYPE_CHECKING:
     from harness.server.inference import OpenAICompatibleClient
 
-ALPHA_PORT = int(os.environ.get("MONSTER_ALPHA_PORT", "8081"))
-ALPHA_TIMEOUT = int(os.environ.get("MONSTER_ALPHA_TIMEOUT", "120"))
+ALPHA_PORT = int(os.environ.get("HUXLEY_ALPHA_PORT", "8081"))
+ALPHA_TIMEOUT = int(os.environ.get("HUXLEY_ALPHA_TIMEOUT", "120"))
 
 
 class Alpha(CasteBase):

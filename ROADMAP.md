@@ -1,4 +1,4 @@
-# 1BitMonster — Roadmap
+# Huxley — Roadmap
 
 Exploratory ideas and future directions beyond the initial implementation.
 
@@ -8,7 +8,7 @@ Exploratory ideas and future directions beyond the initial implementation.
 
 **Goal**: Harness examines past sessions for recurring themes and offers new skills.
 
-- Background thread scans `~/.monster/registry.json` → enumerates all sessions
+- Background thread scans `~/.huxley/registry.json` → enumerates all sessions
 - Reads each session's `meta.json` → builds topic maps, intent clusters
 - Cheap embedding via Gamma (Apfel, 4096 ctx) → stores in Chroma
 - Cluster analysis: "user asks about X on Mondays" → suggests `skill_load`
@@ -48,15 +48,15 @@ Exploratory ideas and future directions beyond the initial implementation.
 
 ---
 
-## 3. Monster Collective (Trusted Skill Registry)
+## 3. Huxley Collective (Trusted Skill Registry)
 
-**Goal**: Formally tested skills shared across monster instances — without becoming a malware distribution pipeline.
+**Goal**: Formally tested skills shared across huxley instances — without becoming a malware distribution pipeline.
 
 The Claude Code skills incident proved that any community skill system without strong provenance is a supply-chain weapon. The Collective is designed from the ground up to prevent that.
 
 ### Trust Model
 
-Monsters run real inference sessions. That's expensive to fake and creates a natural Sybil barrier. The trust model layers this with cryptographic identity, peer vouching, and graduated access:
+Huxleys run real inference sessions. That's expensive to fake and creates a natural Sybil barrier. The trust model layers this with cryptographic identity, peer vouching, and graduated access:
 
 ```
 Layer 1: Instance Identity     (who you are)
@@ -69,9 +69,9 @@ Layer 6: Graduated Namespace   (staging → stable on ratification)
 
 ### Layer 1 — Instance Identity
 
-- Each monster generates an Ed25519 keypair on first `monster collective join`
-- Public key = persistent identity: `monster:ed25519:ABC123...`
-- Private key stored in `~/.monster/identity.ecdsa`, optionally backed by **Secure Enclave** (`SecureEnclave.SecKeyCreateRandomKey` on Apple Silicon)
+- Each huxley generates an Ed25519 keypair on first `huxley collective join`
+- Public key = persistent identity: `huxley:ed25519:ABC123...`
+- Private key stored in `~/.huxley/identity.ecdsa`, optionally backed by **Secure Enclave** (`SecureEnclave.SecKeyCreateRandomKey` on Apple Silicon)
 - Hardware-bound: Secure Enclave keys cannot be exported — identity is literally tied to the machine
 
 ### Layer 2 — Birth Certificate
@@ -80,7 +80,7 @@ On first join, the instance submits a hardware attestation:
 
 ```json
 {
-  "public_key": "monster:ed25519:ABC123...",
+  "public_key": "huxley:ed25519:ABC123...",
   "hardware": {
     "uuid": "F47AC10B-58CC-4372-A567-0E02B2C3D479",
     "model": "Mac15,9",
@@ -93,7 +93,7 @@ On first join, the instance submits a hardware attestation:
 }
 ```
 
-A trusted peer (or the registry, for early days) verifies the UUID format and model string match real Apple Silicon patterns. On approval, a birth certificate is issued — signed by **3 peer monsters** (after swarm exists) or by the registry bootstrap key.
+A trusted peer (or the registry, for early days) verifies the UUID format and model string match real Apple Silicon patterns. On approval, a birth certificate is issued — signed by **3 peer huxleys** (after swarm exists) or by the registry bootstrap key.
 
 An un-certificated instance can pull skills but cannot push them.
 
@@ -115,14 +115,14 @@ Reputation score per identity:
 
 ### Layer 4 — Submission Proof
 
-On `monster skill push`, the local α generates a proof that this submission came from a real monster session:
+On `huxley skill push`, the local α generates a proof that this submission came from a real huxley session:
 
 ```yaml
-name: monster-caveman
+name: huxley-caveman
 version: 1.2.0
 hash: sha256:e3b0c44...
 dependencies: []
-author: monster:ed25519:ABC123...
+author: huxley:ed25519:ABC123...
 
 provenance:
   signature: signed(hash + timestamp + session_id)
@@ -132,15 +132,15 @@ provenance:
 
 The registry verifies:
 1. **Identity** — signature matches a known, certificated, non-revoked public key
-2. **Session proof** — `session_id` corresponds to a real `~/.monster/sessions/<uuid>/` directory with valid `meta.json` (created before timestamp, minimum session duration implied by real inference)
+2. **Session proof** — `session_id` corresponds to a real `~/.huxley/sessions/<uuid>/` directory with valid `meta.json` (created before timestamp, minimum session duration implied by real inference)
 3. **Freshness** — timestamp is within the last hour (prevents replay)
 4. **No duplicates** — hash not already submitted (prevents re-pushing other people's skills)
 
-Cost to forge: an attacker must run a real monster alpha session (with actual model inference) to generate a valid session. Mass registration becomes uneconomical.
+Cost to forge: an attacker must run a real huxley alpha session (with actual model inference) to generate a valid session. Mass registration becomes uneconomical.
 
 ### Layer 5 — Sandbox Verification
 
-Before a submission is accepted, the registry runs it through sandboxed test execution. On the submitting machine (`monster skill push` runs locally first), and optionally on the registry CI:
+Before a submission is accepted, the registry runs it through sandboxed test execution. On the submitting machine (`huxley skill push` runs locally first), and optionally on the registry CI:
 
 - **`sandbox-exec`** (macOS Seatbelt sandbox) — no network, read-only `/usr` and `/System`, write allowed only to a temp directory
 - **Manifest must declare all capabilities**:
@@ -148,13 +148,13 @@ Before a submission is accepted, the registry runs it through sandboxed test exe
   sandbox:
     network: false
     read_paths:
-      - /tmp/monster-test/**
+      - /tmp/huxley-test/**
     write_paths: []
     max_cpu_secs: 30
     max_ram_mb: 512
   ```
 - If any capability is undeclared but used → test fails, submission rejected, -10 reputation
-- Skill test suite runs inside sandbox: `monster test <skill>` must pass with exit code 0
+- Skill test suite runs inside sandbox: `huxley test <skill>` must pass with exit code 0
 - Test failure on registry CI also fails the submission
 
 ### Layer 6 — Graduated Namespace
@@ -172,14 +172,14 @@ push → staging/ → [peer ratification] → stable/
 
 Ratification process:
 1. Peer α detects new staging entry during daydream/discovery cycle
-2. Optionally pulls to sandbox, runs `monster test <skill>`
+2. Optionally pulls to sandbox, runs `huxley test <skill>`
 3. Reports: `ratify{skill, hash, verdict, evidence}` signed by peer's identity
 4. If 2+ ratifications pass → promoted to `stable`
 5. If 2+ ratifications fail → returned to author with evidence, -5 rep
 
 ### Anonymisation Pipeline (Pre-Submission)
 
-Skills are generated by monsters FROM real user interactions. Session archaeology, daydreaming, and pattern extraction all risk embedding private data into skill content. Every skill must pass an anonymisation pipeline before it can be `monster skill push`'d.
+Skills are generated by huxleys FROM real user interactions. Session archaeology, daydreaming, and pattern extraction all risk embedding private data into skill content. Every skill must pass an anonymisation pipeline before it can be `huxley skill push`'d.
 
 The pipeline runs on the generating machine, before any data leaves:
 
@@ -233,9 +233,9 @@ Uses regex passes first, then a lightweight ML classifier (via Gamma, 4096 ctx) 
 Replaces absolute filesystem paths with generic placeholders:
 
 - `/Users/<name>/` → `$HOME/`
-- `/Users/<name>/Projects/1BitMonster/` → `<project-root>/`
-- `/tmp/monster-*` → `<session-tmp>/`
-- `~/.monster/sessions/<uuid>/` → `<session-dir>/`
+- `/Users/<name>/Projects/Huxley/` → `<project-root>/`
+- `/tmp/huxley-*` → `<session-tmp>/`
+- `~/.huxley/sessions/<uuid>/` → `<session-dir>/`
 
 Maps known project directories (from session registry) to descriptive names. Unknown paths → `<unknown-path-N>`.
 
@@ -292,20 +292,20 @@ The `scrub_pass` hash allows verification that the submitted skill matches the s
 
 #### User Opt-In
 
-- `monster config set privacy.skill_anonymise: true` (default: **true**)
-- `monster config set privacy.auto_submit: false` (default: **false** — always ask before push)
-- `monster config set privacy.allow_raw_examples: false` (default: **false**)
-- Every `monster skill push` prints a diff of what changed during anonymisation before asking for confirmation
+- `huxley config set privacy.skill_anonymise: true` (default: **true**)
+- `huxley config set privacy.auto_submit: false` (default: **false** — always ask before push)
+- `huxley config set privacy.allow_raw_examples: false` (default: **false**)
+- Every `huxley skill push` prints a diff of what changed during anonymisation before asking for confirmation
 
 **Why**: A generated skill is a distillation of user interaction. Without explicit safeguards, submitting a skill is equivalent to publishing your terminal history. This pipeline ensures no private data ever leaves the machine — and if something slips through, it's caught before it reaches the registry.
 
 ### Supply-Chain Defense
 
 - **Exact dependency pinning**: `dependencies` field specifies exact version hashes, no ranges
-- **Dependency auditing**: `monster skill deps <name>` shows full tree with hashes and identities
-- **Auto-flag on dependency compromise**: if a dependency is revoked, all dependents are moved to `quarantine/` and existing installs trigger a warning on next `monster skill update`
+- **Dependency auditing**: `huxley skill deps <name>` shows full tree with hashes and identities
+- **Auto-flag on dependency compromise**: if a dependency is revoked, all dependents are moved to `quarantine/` and existing installs trigger a warning on next `huxley skill update`
 - **Revocation broadcast**: key compromise → signed revocation → all submissions from that key → `quarantine/` on next registry sync
-- **No auto-update**: `monster skill update` is an explicit command, never automatic. User must review changelog first.
+- **No auto-update**: `huxley skill update` is an explicit command, never automatic. User must review changelog first.
 - **Install-time warning**: if a skill declares `network: true`, warn with the full dependency tree before install
 
 ### Skill Evolution (Forking, Classification & Deprecation)
@@ -317,19 +317,19 @@ A skill in the collective is not static. An α pulls it, uses it for 30 days, ha
 Improvements are **forks** with explicit lineage, not PRs against a canonical original. This avoids maintainer bottlenecks and lets natural selection work:
 
 ```
-monster-caveman v1.2.0               ← original
-  ├── monster-caveman v2.0.0         ← major rewrite by original author
-  └── monster-caveman-laconic v1.0.0 ← fork by peer α with different style
-        └── monster-caveman-laconic v1.1.0  ← improvement on the fork
+huxley-caveman v1.2.0               ← original
+  ├── huxley-caveman v2.0.0         ← major rewrite by original author
+  └── huxley-caveman-laconic v1.0.0 ← fork by peer α with different style
+        └── huxley-caveman-laconic v1.1.0  ← improvement on the fork
 ```
 
 Each fork declares its parent in the manifest:
 
 ```yaml
-name: monster-caveman-laconic
+name: huxley-caveman-laconic
 version: 1.0.0
 fork:
-  parent: monster-caveman@1.2.0
+  parent: huxley-caveman@1.2.0
   parent_hash: sha256:e3b0c44...
   reason: laconic style — 50% fewer tokens than original
   diff_hash: sha256:...
@@ -338,10 +338,10 @@ fork:
 The registry tracks the full tree. Users can explore:
 
 ```
-monster skill lineage monster-caveman-laconic
-# monster-caveman-laconic@1.0.0
-#   └─ monster-caveman@1.2.0  (parent)
-#        └─ monster-caveman@1.0.0  (grandparent — archived)
+huxley skill lineage huxley-caveman-laconic
+# huxley-caveman-laconic@1.0.0
+#   └─ huxley-caveman@1.2.0  (parent)
+#        └─ huxley-caveman@1.0.0  (grandparent — archived)
 ```
 
 There is no "original" vs "fork" hierarchy — only ancestry. Any node in the tree can be installed. If a fork gains more installs and better peer ratings than its parent, it naturally becomes the recommended choice.
@@ -386,12 +386,12 @@ classify:
 Search becomes semantic + faceted:
 
 ```
-monster skill search summarise --domain code_review --caste_min gamma
-monster skill search extract --domain email --caste_ideal beta
-monster skill search transform --quality_min 3
+huxley skill search summarise --domain code_review --caste_min gamma
+huxley skill search extract --domain email --caste_ideal beta
+huxley skill search transform --quality_min 3
 ```
 
-The registry maintains an index. `monster skill suggest <context>` uses the local α to recommend: given what the user is doing right now (based on session archaeology), which skills fit?
+The registry maintains an index. `huxley skill suggest <context>` uses the local α to recommend: given what the user is doing right now (based on session archaeology), which skills fit?
 
 #### Supersession (Deprecation with a Path Forward)
 
@@ -400,20 +400,20 @@ A skill is superseded when a fork clearly outclasses it. Supersession is declare
 ```yaml
 # In the NEW skill's manifest:
 supersedes:
-  - monster-caveman@1.2.0
+  - huxley-caveman@1.2.0
     reason: 40% fewer tokens, same accuracy, broader test coverage
 ```
 
 On submission, the registry:
 1. Verifies the old skill exists and the new skill passes sandbox tests
 2. Marks the old skill as `deprecated` — still installable, but with a warning
-3. Creates a redirect: `monster skill pull monster-caveman` → latest non-deprecated version
+3. Creates a redirect: `huxley skill pull huxley-caveman` → latest non-deprecated version
 4. Records the supersession in both skill lineage trees
 
 Deprecation is **soft** — old versions remain installable by explicit version:
 ```
-monster skill pull monster-caveman@1.2.0     # pulls deprecated version (with warning)
-monster skill pull monster-caveman --deprecated  # same as above, no shorthand needed
+huxley skill pull huxley-caveman@1.2.0     # pulls deprecated version (with warning)
+huxley skill pull huxley-caveman --deprecated  # same as above, no shorthand needed
 ```
 
 Supersession can be disputed:
@@ -471,8 +471,8 @@ These are not human CLI commands — they are structured messages the α sends t
 The human's view is mediated by the α through the board and confirmation prompts:
 
 ```
-monster suggest skill               # α proposes install-worthy skills from registry
-monster board post epic "improve X"  # human flags a skill as weak → α evaluates →
+huxley suggest skill               # α proposes install-worthy skills from registry
+huxley board post epic "improve X"  # human flags a skill as weak → α evaluates →
                                      # α may fork, supersede, or deprecate via API
 ```
 
@@ -483,9 +483,9 @@ No human ever types `skill_deprecate` — the α handles the protocol.
 ### Key Rotation & Recovery
 
 ```
-monster identity rotate              # generate new key, broadcast signed transition
-monster identity revoke <reason>     # sign revocation with current key
-monster identity recover <backup>    # restore from paper key backup, re-vouch
+huxley identity rotate              # generate new key, broadcast signed transition
+huxley identity revoke <reason>     # sign revocation with current key
+huxley identity recover <backup>    # restore from paper key backup, re-vouch
 ```
 
 - Rotation: old key signs a transition to new key → registry updates identity forward
@@ -498,10 +498,10 @@ The registry has no browsable website, no web UI, no human login. It is a **mach
 
 | Endpoint | Protocol | Purpose |
 |----------|----------|---------|
-| `https://registry.1bitmonster.io/v1/` | HTTPS REST | Submit, pull, search, query lineage |
-| `wss://registry.1bitmonster.io/v1/events` | WebSocket | Real-time: new staging entries, ratification requests, deprecation broadcasts |
+| `https://registry.huxley.io/v1/` | HTTPS REST | Submit, pull, search, query lineage |
+| `wss://registry.huxley.io/v1/events` | WebSocket | Real-time: new staging entries, ratification requests, deprecation broadcasts |
 
-All interactions are α-to-registry. The α decides autonomously when to push, fork, or deprecate a skill. The human never types `monster skill deprecate` or `monster skill dispute` — those are internal α-to-registry API messages.
+All interactions are α-to-registry. The α decides autonomously when to push, fork, or deprecate a skill. The human never types `huxley skill deprecate` or `huxley skill dispute` — those are internal α-to-registry API messages.
 
 The human's interface to the collective is minimal and board-mediated:
 
@@ -552,7 +552,7 @@ The classification determines the escalation path:
 ```
 fast/critical → α deprecates immediately, posts DEPRECATED event to local board
                   ↓
-                human sees: "γ|board|deprecated|monster-caveman|bug|prompt injection"
+                human sees: "γ|board|deprecated|huxley-caveman|bug|prompt injection"
                   ↓
                 human can revert with one command, but α has already protected the network
 
@@ -568,10 +568,10 @@ The deprecation message to the registry includes:
 ```json
 {
   "action": "deprecate",
-  "target": "monster-caveman@1.2.0",
+  "target": "huxley-caveman@1.2.0",
   "reason": "performance_regression",
-  "evidence": "fork monster-caveman-laconic@1.0.0 achieves same accuracy at 60% lower token cost",
-  "recommendation": "monster-caveman-laconic@1.0.0",
+  "evidence": "fork huxley-caveman-laconic@1.0.0 achieves same accuracy at 60% lower token cost",
+  "recommendation": "huxley-caveman-laconic@1.0.0",
   "signature": "ed25519:ABC123:..."
 }
 ```
@@ -580,7 +580,7 @@ The `recommendation` field lets the α point users to a better alternative — t
 
 ### Registry Architecture
 
-Git-backed repo (`github.com/1bitmonster/registry`):
+Git-backed repo (`github.com/Huxley/registry`):
 
 ```
 registry/
@@ -590,13 +590,13 @@ registry/
       birth.json        # birth certificate
       rep.json          # reputation history
   stable/               # ratified skills
-    monster-caveman/
+    huxley-caveman/
       1.2.0/
         SKILL.md        # skill content
         manifest.yaml   # with provenance block
         test.sh         # test suite
   staging/              # un-ratified submissions
-    monster-caveman/
+    huxley-caveman/
       1.2.0/            # same structure, plus ratification proofs
   quarantine/           # revoked or flagged
   revoked-keys/         # compromised public keys
@@ -606,9 +606,9 @@ registry/
 
 ---
 
-## 4. Monster Swarm (Distributed Caste Network)
+## 4. Huxley Swarm (Distributed Caste Network)
 
-**Goal**: Monsters on the same LAN discover each other and lend idle β/γ capacity. Idle swarms can confer on problems during quiet time.
+**Goal**: Huxleys on the same LAN discover each other and lend idle β/γ capacity. Idle swarms can confer on problems during quiet time.
 
 ### Status: Discovery + borrow/lend delegation implemented, idle consensus still future
 
@@ -656,11 +656,11 @@ When α detects all local EPICs are done and peers are idle:
 
 ## ✅ Completed
 
-### Monsterd (Background Daemon)
+### Huxleyd (Background Daemon)
 
 **Status: Implemented.** See README for commands and architecture.
 
-`monster daemon start|stop|status` runs the harness as a persistent background process with PID at `~/.monster/monsterd.pid`. The daemon hosts the scheduler tick loop, autonomous worker loop, and keeps castes resident across inferences. HTTP control API on `localhost:8083` (`MONSTERD_PORT`).
+`huxley daemon start|stop|status` runs the harness as a persistent background process with PID at `~/.huxley/huxleyd.pid`. The daemon hosts the scheduler tick loop, autonomous worker loop, and keeps castes resident across inferences. HTTP control API on `localhost:8083` (`HUXLEYD_PORT`).
 
 No launchd plist yet — manual start for now.
 
@@ -668,21 +668,21 @@ No launchd plist yet — manual start for now.
 
 **Status: Implemented.** See README for trigger types and commands.
 
-`monster schedule add|list|remove|history` manages persistent schedules in `~/.monster/scheduler/`. The in-process tick loop within monsterd fires due entries every 5s. Supports `interval`, `daily_at`, `idle`, and `backlog` triggers with `post_to_board` actions. Schedules survive restarts with `missed_behaviour` policy (skip/catch_up/fire_once).
+`huxley schedule add|list|remove|history` manages persistent schedules in `~/.huxley/scheduler/`. The in-process tick loop within huxleyd fires due entries every 5s. Supports `interval`, `daily_at`, `idle`, and `backlog` triggers with `post_to_board` actions. Schedules survive restarts with `missed_behaviour` policy (skip/catch_up/fire_once).
 
 ### Swarm Discovery & Delegation (LAN Peer Network)
 
 **Status: Implemented.** See README for commands and architecture.
 
-UDP multicast peer discovery — zero deps, zero config. Monsters on the same LAN automatically discover each other and track peer state (caste availability, load, staleness). The daemon also supports remote work execution over HTTP. CLI: `monster swarm peers|status`. API: `GET /v1/swarm/peers|status`, `GET /v1/load`, `POST /v1/units/execute`, `POST /v1/tasks/execute`.
+UDP multicast peer discovery — zero deps, zero config. Huxleys on the same LAN automatically discover each other and track peer state (caste availability, load, staleness). The daemon also supports remote work execution over HTTP. CLI: `huxley swarm peers|status`. API: `GET /v1/swarm/peers|status`, `GET /v1/load`, `POST /v1/units/execute`, `POST /v1/tasks/execute`.
 
 Idle consensus and stronger auth/policy controls are still future (see section 4 above).
 
 ## Implementation Priority
 
 1. **Daydreaming (Discovery only)** — cheap, passive, feeds curiosity engine
-2. **Session Archaeology** — needs data from monsterd running for a while
+2. **Session Archaeology** — needs data from huxleyd running for a while
 3. **Swarm auth + policy hardening** — secure delegated execution and clearer opt-in semantics
 4. **Swarm idle consensus** — distributed daydream sessions
 5. **Daydreaming (Full pipeline)** — needs archaeology + swarm for distributed compute
-6. **Monster Collective** — needs at least 2+ monsters and 1 ratified skill
+6. **Huxley Collective** — needs at least 2+ huxleys and 1 ratified skill
