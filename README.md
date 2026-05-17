@@ -389,6 +389,27 @@ apfel --serve
 huxley init
 ```
 
+## Uninstall
+
+```bash
+# Stop background services first
+huxley daemon stop
+huxley board serve stop
+
+# Remove the Python package
+pip uninstall huxley
+
+# Remove the project session symlink
+rm -f .huxley
+
+# (Optional) Remove all Huxley runtime data
+rm -rf ~/.huxley
+
+# (Optional) Remove the source checkout
+cd ..
+rm -rf Huxley
+```
+
 ## Quick Start
 
 ```bash
