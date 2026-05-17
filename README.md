@@ -14,7 +14,7 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  huxleyd  (background daemon, ~/.huxley/huxleyd.pid)    │
+│  huxleyd  (background daemon, ~/.huxley/huxleyd.pid)     │
 │                                                          │
 │  ┌── tick loop (every 5s) ────────────────────────────┐  │
 │  │  scheduler: check registry → fire due entries      │  │
@@ -257,7 +257,7 @@ Huxleys on the same LAN automatically discover each other via **UDP multicast**.
 
 ```
 ┌──────────────────┐        UDP multicast          ┌─────────────────┐
-│ huxleyd (M2 Pro)│ ◄───── 239.255.43.21 ───────► │ huxleyd (M5)   │
+│ huxleyd (M2 Pro) │ ◄───── 239.255.43.21 ───────► │ huxleyd (M5)    │
 │ port 8083        │                               │ port 8083       │
 │ castes: αβγ      │                               │ castes: αγ      │
 └──────────────────┘                               └─────────────────┘
@@ -285,6 +285,56 @@ The peer table and delegation endpoints are accessible via the daemon control AP
 | `GET /v1/load` | Current in-progress task count for this daemon |
 | `POST /v1/units/execute` | Execute a single Gamma unit remotely |
 | `POST /v1/tasks/execute` | Execute Beta triage + Gamma units remotely |
+
+### Debugging Connections
+
+When a swarm node can see peers but is not visible to them, break the problem into three layers: daemon health, discovery packets, and host networking.
+
+```bash
+# 1. Make sure the daemon is really up
+huxley daemon status
+huxley swarm status
+huxley swarm peers
+
+# 2. Check whether multicast/broadcast works on this host at all
+huxley swarm test
+# γ|swarm|test|send=True|recv=True|loopback=True
+
+# 3. Force an immediate heartbeat instead of waiting 30s
+huxley swarm announce
+
+# 4. Inspect the daemon API locally or from another host
+curl http://127.0.0.1:8083/v1/swarm/status
+curl http://127.0.0.1:8083/v1/swarm/peers/all
+curl http://<peer-ip>:8083/v1/swarm/peers/all
+```
+
+What to look for:
+
+1. If `huxley swarm test` shows `loopback=False`, the machine is not receiving its own multicast/broadcast. On macOS this usually means firewall, NECP, VPN, or network-extension interference.
+2. If `GET /v1/swarm/status` is healthy but `peers/all` only shows stale entries, the daemon is running but not hearing fresh announcements.
+3. If a peer appears immediately after `huxley swarm announce`, the receive path is good and the problem is on the sender's periodic announce path or daemon lifecycle.
+4. If other machines can see a node but that node cannot see them, the receive path on that node is the problem. If the node can see others but others never see it, the outbound multicast/broadcast path on that node is the problem.
+
+Common fixes:
+
+1. **Restart the daemon that owns the bad peer table.** Discovery sockets are created by `huxleyd`; if the daemon was started before an interface change, restart it.
+2. **Check for stale daemon processes.** If `huxley daemon start` says `ok` but the new code does not seem to be running, verify which process owns port `8083` and UDP port `43210`:
+
+   ```bash
+   lsof -nP -iTCP:8083 -sTCP:LISTEN
+   lsof -nP -iUDP:43210
+   ps -Ao pid=,command= | grep '[h]arness.daemon'
+   ```
+
+3. **Watch for extra interfaces.** Tailscale (`utun*`), VM bridges, and other virtual NICs can confuse discovery. Check `ifconfig` and confirm the machine is actually using the LAN address you expect.
+4. **Confirm packets leave the real LAN interface.** On macOS, if unicast works but multicast/broadcast does not, capture on `en0` while announcing:
+
+   ```bash
+   sudo tcpdump -ni en0 'udp port 43210'
+   ```
+
+   If packets do not appear, the host is suppressing outbound discovery. If they appear on `en0` but peers still do not see them, the AP or upstream network is filtering multicast/broadcast.
 
 ### Delegation Model
 
@@ -469,7 +519,7 @@ huxley patch --apply harness/config.py
 | `huxley compact [--caste]` | Compact session journal via summarisation |
 | `huxley daemon start\|stop\|status` | Manage huxley background daemon |
 | `huxley schedule list\|add\|remove\|history` | Manage scheduled tasks |
-| `huxley swarm peers\|status` | LAN peer discovery and swarm status |
+| `huxley swarm peers\|status\|test\|announce` | LAN peer discovery, diagnostics, and manual announce |
 
 ### Board (Kanban Job Queue)
 

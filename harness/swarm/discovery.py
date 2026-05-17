@@ -214,7 +214,9 @@ class DiscoveryService:
         self._recv_thread: Optional[threading.Thread] = None
         self._sock: Optional[socket.socket] = None
         self._hostname = socket.gethostname()
-        self._local_ips = _lan_ips()
+        self._local_ips: list[str] = []
+        self._bcasts: list[str] = []
+        self._sock_lock = threading.Lock()
         self._self_ports = {daemon_port}
         self._instance_id = uuid.uuid4().hex[:12]
 
@@ -222,10 +224,7 @@ class DiscoveryService:
         if self._running:
             return
         self._running = True
-        try:
-            self._sock = self._make_socket()
-        except OSError as e:
-            print(f"γ|swarm|sock_err|{e}", flush=True)
+        if not self._refresh_interfaces(force=True):
             self._running = False
             return
         print(f"γ|swarm|start|mcast+bcast|port={MULTICAST_PORT}|ifaces={','.join(self._local_ips)}", flush=True)
@@ -246,7 +245,9 @@ class DiscoveryService:
                 t.join(timeout=3)
         print("γ|swarm|stop", flush=True)
 
-    def _make_socket(self) -> socket.socket:
+    def _make_socket(self, ips: Optional[list[str]] = None) -> socket.socket:
+        if ips is None:
+            ips = self._local_ips
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         if hasattr(socket, "SO_REUSEPORT"):
@@ -254,7 +255,7 @@ class DiscoveryService:
         s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         s.bind(("0.0.0.0", MULTICAST_PORT))
         joined = 0
-        for ip in self._local_ips:
+        for ip in ips:
             try:
                 mreq = struct.pack("4s4s", socket.inet_aton(MULTICAST_GROUP), socket.inet_aton(ip))
                 s.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
@@ -265,6 +266,36 @@ class DiscoveryService:
             print(f"γ|swarm|warn|IP_ADD_MEMBERSHIP failed on all interfaces, relying on broadcast", flush=True)
         s.settimeout(2.0)
         return s
+
+    def _swap_socket(self, new_sock: socket.socket):
+        old_sock = None
+        with self._sock_lock:
+            old_sock = self._sock
+            self._sock = new_sock
+        if old_sock and old_sock is not new_sock:
+            try:
+                old_sock.close()
+            except OSError:
+                pass
+
+    def _refresh_interfaces(self, force: bool = False) -> bool:
+        interfaces = _lan_interfaces()
+        ips = [iface["ip"] for iface in interfaces]
+        bcasts = [iface["bcast"] for iface in interfaces if iface.get("bcast")]
+        if not force and ips == self._local_ips and bcasts == self._bcasts:
+            return True
+        try:
+            new_sock = self._make_socket(ips)
+        except OSError as e:
+            print(f"γ|swarm|sock_err|{e}", flush=True)
+            return False
+        old_ips = self._local_ips
+        self._local_ips = ips
+        self._bcasts = bcasts
+        self._swap_socket(new_sock)
+        if old_ips and old_ips != ips:
+            print(f"γ|swarm|ifaces|refresh|old={','.join(old_ips)}|new={','.join(ips)}", flush=True)
+        return True
 
     def _send_loop(self):
         for _ in range(3):
@@ -280,34 +311,44 @@ class DiscoveryService:
                 time.sleep(1)
 
     def _announce_all(self):
+        if not self._refresh_interfaces():
+            return
         try:
             from harness.board import JobBoard, State
             board = JobBoard()
             load = float(len(board.list(state=State.IN_PROGRESS)))
         except Exception:
             load = 0.0
+        with self._sock_lock:
+            sock = self._sock
+        if sock is None:
+            return
         try:
             data = _build_announce(self._hostname, self.daemon_port, load=load, instance_id=self._instance_id)
             for ip in self._local_ips:
                 try:
-                    self._sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
-                    self._sock.sendto(data, (MULTICAST_GROUP, MULTICAST_PORT))
+                    sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, socket.inet_aton(ip))
+                    sock.sendto(data, (MULTICAST_GROUP, MULTICAST_PORT))
                 except OSError:
                     pass
-            bcasts = _bcast_addrs()
-            for bcast in bcasts:
+            for bcast in self._bcasts:
                 try:
-                    self._sock.sendto(data, (bcast, MULTICAST_PORT))
+                    sock.sendto(data, (bcast, MULTICAST_PORT))
                 except OSError:
                     pass
-            self._sock.sendto(data, ("255.255.255.255", MULTICAST_PORT))
+            sock.sendto(data, ("255.255.255.255", MULTICAST_PORT))
         except OSError:
             pass
 
     def _recv_loop(self):
         while self._running:
+            with self._sock_lock:
+                sock = self._sock
+            if sock is None:
+                time.sleep(1)
+                continue
             try:
-                data, addr = self._sock.recvfrom(BUFFER_SIZE)
+                data, addr = sock.recvfrom(BUFFER_SIZE)
                 info = _parse_announce(data, addr)
                 if info:
                     same_id = info.get("instance_id", "") == self._instance_id
