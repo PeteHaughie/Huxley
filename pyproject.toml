@@ -1,5 +1,5 @@
 [project]
-name = "1bitmonster"
+name = "huxley"
 version = "0.1.0"
 description = "Hyper-efficient local-first AI agent harness with three-tier caste system"
 requires-python = ">=3.11"
@@ -14,7 +14,7 @@ dependencies = [
 ]
 
 [project.scripts]
-monster = "harness.cli:main"
+huxley = "harness.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["harness*"]

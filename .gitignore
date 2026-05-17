@@ -5,4 +5,4 @@ dist/
 build/
 .venv/
 *.gguf
-.monster
+.huxley

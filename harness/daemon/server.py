@@ -6,7 +6,7 @@ import urllib.parse
 from harness.daemon.scheduler import SchedulerEngine, Schedule, _ensure_scheduler_dir, _peer_table
 from harness.board import JobBoard, State
 
-DAEMON_PORT = int(os.environ.get("MONSTERD_PORT", "8083"))
+DAEMON_PORT = int(os.environ.get("HUXLEYD_PORT", "8083"))
 
 _scheduler = SchedulerEngine(daemon_port=DAEMON_PORT)
 
@@ -139,7 +139,7 @@ def run_daemon(port: int = DAEMON_PORT):
     _scheduler.start()
     addr = ("0.0.0.0", port)
     server = http.server.HTTPServer(addr, DaemonHandler)
-    print(f"γ|monsterd|listen|http://0.0.0.0:{port}", flush=True)
+    print(f"γ|huxleyd|listen|http://0.0.0.0:{port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:

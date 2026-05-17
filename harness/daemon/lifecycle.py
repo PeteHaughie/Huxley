@@ -7,11 +7,11 @@ import signal
 import urllib.request
 import urllib.error
 from pathlib import Path
-from harness.config import MONSTER_HOME
+from harness.config import HUXLEY_HOME
 
-PID_PATH = MONSTER_HOME / "monsterd.pid"
-LOG_PATH = MONSTER_HOME / "monsterd.log"
-DAEMON_PORT = int(os.environ.get("MONSTERD_PORT", "8083"))
+PID_PATH = HUXLEY_HOME / "huxleyd.pid"
+LOG_PATH = HUXLEY_HOME / "huxleyd.log"
+DAEMON_PORT = int(os.environ.get("HUXLEYD_PORT", "8083"))
 
 
 def _daemon_url(path: str) -> str:

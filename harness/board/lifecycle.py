@@ -8,11 +8,11 @@ import subprocess
 import urllib.request
 import urllib.error
 from pathlib import Path
-from harness.config import MONSTER_HOME
+from harness.config import HUXLEY_HOME
 
-PID_PATH = MONSTER_HOME / "boardd.pid"
-PORT_PATH = MONSTER_HOME / "boardd.port"
-LOG_PATH = MONSTER_HOME / "boardd.log"
+PID_PATH = HUXLEY_HOME / "boardd.pid"
+PORT_PATH = HUXLEY_HOME / "boardd.port"
+LOG_PATH = HUXLEY_HOME / "boardd.log"
 
 
 def _find_free_port(start: int, max_attempts: int = 10) -> int:

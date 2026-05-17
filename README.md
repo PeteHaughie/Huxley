@@ -1,4 +1,4 @@
-# 1BitMonster
+# Huxley
 
 Hyper-efficient local-first AI agent harness with a three-tier caste system.
 
@@ -14,7 +14,7 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 
 ```
 ┌──────────────────────────────────────────────────────────┐
-│  monsterd  (background daemon, ~/.monster/monsterd.pid)  │
+│  huxleyd  (background daemon, ~/.huxley/huxleyd.pid)    │
 │                                                          │
 │  ┌── tick loop (every 5s) ────────────────────────────┐  │
 │  │  scheduler: check registry → fire due entries      │  │
@@ -32,7 +32,7 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 │    ▼                     │                               │
 │  ╔════════════════════╗  │  ← shared pull-queue          │
 │  ║   Kanban Board     ║  │                               │
-│  ║  ~/.monster/board/ ║  │                               │
+│  ║  ~/.huxley/board/  ║  │                               │
 │  ╚════════════════════╝  │                               │
 │    ▲                     │                               │
 │    │                     │                               │
@@ -67,7 +67,7 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 
 ### Job Board
 
-All inter-caste work flows through a shared Kanban board at `~/.monster/board/`. Castes never call each other directly — they pull tasks from the board.
+All inter-caste work flows through a shared Kanban board at `~/.huxley/board/`. Castes never call each other directly — they pull tasks from the board.
 
 ```
 Levels:  EPIC  ──β──→  TASK  ──β──→  UNIT
@@ -87,31 +87,34 @@ State machine enforces valid transitions (e.g. `backlog → ready` before `in_pr
 
 ```bash
 # View the board
-monster board list
-monster board list --level epic
-monster board list --state in_progress
+huxley board list
+huxley board list --level epic
+huxley board list --state in_progress
 
 # Post work
-monster board post epic "refactor memory system" --prompt "..."
-monster board post unit "implement GET endpoint"
+huxley board post epic "refactor memory system" --prompt "..."
+huxley board post unit "implement GET endpoint"
 
 # Claim work (pulls next backlog→ready→in_progress)
-monster board claim epic --caste β
+huxley board claim epic --caste β
 
 # Show details
-monster board show <task-id>          # partial UUID prefix ok
+huxley board show <task-id>          # partial UUID prefix ok
 
 # Complete work
-monster board complete <task-id> --result "done"
+huxley board complete <task-id> --result "done"
 
 # Launch Kanban web UI as background daemon (Python stdlib, zero deps)
-monster board serve start --port 8080
+huxley board serve start --port 8080
 # γ|boardd|started|pid 12345|http://localhost:8080
 
-monster board serve status
+# From the web UI, use "clear board" to remove all tasks at once.
+# API: DELETE /api/tasks  -> {"status":"cleared","removed":N}
+
+huxley board serve status
 # γ|boardd|running|pid 12345|http://localhost:8080
 
-monster board serve stop
+huxley board serve stop
 # γ|boardd|stopped|pid 12345
 ```
 
@@ -119,49 +122,49 @@ monster board serve stop
 
 Three layers, each progressively more persistent:
 
-1. **VK Cache (TurboQuant)** — In-process KV cache at 4.5 bits/element via `--cache-type-k turbo4_0`. Persisted to `~/.monster/<session>/cache/`.
-2. **Vector DB (Chroma)** — Semantic memory in `~/.monster/<session>/interlink/`. Queried by Alpha for relevant past context.
+1. **VK Cache (TurboQuant)** — In-process KV cache at 4.5 bits/element via `--cache-type-k turbo4_0`. Persisted to `~/.huxley/<session>/cache/`.
+2. **Vector DB (Chroma)** — Semantic memory in `~/.huxley/<session>/interlink/`. Queried by Alpha for relevant past context.
 3. **MemQ Graph** — Entity-relation graph. Nodes = concepts/files/agents, edges = typed relationships. JSON-backed, queryable by traversal.
 
 ### Models
 
-GGUF models are stored in `~/.monster/models/` — a central, harness-managed directory.
+GGUF models are stored in `~/.huxley/models/` — a central, harness-managed directory.
 
 | Model | Path | Caste |
 |-------|------|-------|
-| Gemma 4 e4B (main) | `~/.monster/models/gemma-4-e4b-Q4_K_M.gguf` | α |
-| Gemma 4 e4B draft (MTP) | `~/.monster/models/gemma-4-e4b-draft.gguf` | α |
-| Ternary Bonsai 8B (llama.cpp fallback) | `~/.monster/models/ternary-bonsai-8b.gguf` | β |
+| Gemma 4 e4B (main) | `~/.huxley/models/gemma-4-e4b-Q4_K_M.gguf` | α |
+| Gemma 4 e4B draft (MTP) | `~/.huxley/models/gemma-4-e4b-draft.gguf` | α |
+| Ternary Bonsai 8B (llama.cpp fallback) | `~/.huxley/models/ternary-bonsai-8b.gguf` | β |
 
 ```bash
 # List models in the models directory
-monster models
+huxley models
 # γ|model|gemma-4-e4b-Q4_K_M.gguf|5.2G
 ```
 
 MLX models (primary Beta engine) are cached by MLX in its own Hugging Face cache — no extra management needed.
 
-Model paths in `~/.monster/config.yaml` use `~` expansion and are resolved at load time.
+Model paths in `~/.huxley/config.yaml` use `~` expansion and are resolved at load time.
 
 ## Session Lifecycle
 
 ```
-~/.monster/
+~/.huxley/
   registry.json           # path → session-id mapping
   config.yaml             # global harness configuration
   models/                 # GGUF model files (Gemma 4, Bonsai fallback, etc.)
   board/                  # Kanban job board (one JSON file per task)
-  skills/                 # monster-specific skills (shadow ~/.agents/skills/)
+  skills/                 # huxley-specific skills (shadow ~/.agents/skills/)
   scheduler/
     schedules.json        # persistent schedule registry
     history.json          # last-N firings per schedule
-  monsterd.pid            # daemon PID (auto-generated)
-  monsterd.port           # daemon control port
-  monsterd.log            # daemon log output
+  huxleyd.pid             # daemon PID (auto-generated)
+  huxleyd.port            # daemon control port
+  huxleyd.log             # daemon log output
   boardd.pid              # board web UI PID
   boardd.port             # board web UI port
   boardd.log              # board web UI log
-  apfeld.pid              # Apfel PID (only if monster started it)
+  apfeld.pid              # Apfel PID (only if huxley started it)
   apfeld.log              # Apfel log
   sessions/
     <uuid>/
@@ -177,28 +180,28 @@ Model paths in `~/.monster/config.yaml` use `~` expansion and are resolved at lo
         journal.jsonl     # append-only JSONL conversation log
 ```
 
-Each project directory can have a `.monster` symlink → `~/.monster/sessions/<uuid>/` for quick reference.
+Each project directory can have a `.huxley` symlink → `~/.huxley/sessions/<uuid>/` for quick reference.
 
-## Daemon (monsterd)
+## Daemon (huxleyd)
 
 The background daemon runs the scheduler tick loop and autonomous worker loop. It manages caste lifecycles, ports, and process state.
 
 ```bash
-# Start monsterd (background, PID at ~/.monster/monsterd.pid)
-monster daemon start
+# Start huxleyd (background, PID at ~/.huxley/huxleyd.pid)
+huxley daemon start
 
 # Check status
-monster daemon status
+huxley daemon status
 
 # Stop gracefully
-monster daemon stop
+huxley daemon stop
 ```
 
-The daemon exposes an HTTP control API on `localhost:8083` (`MONSTERD_PORT`) for internal CLI commands. It stays resident so castes don't need to reload models between invocations.
+The daemon exposes an HTTP control API on `localhost:8083` (`HUXLEYD_PORT`) for internal CLI commands. It stays resident so castes don't need to reload models between invocations.
 
 ## Scheduler
 
-The scheduler runs inside monsterd — a tick loop (every 5s) that checks the schedule registry and fires due actions. Schedules persist across restarts in `~/.monster/scheduler/`.
+The scheduler runs inside huxleyd — a tick loop (every 5s) that checks the schedule registry and fires due actions. Schedules persist across restarts in `~/.huxley/scheduler/`.
 
 ### Trigger Types
 
@@ -219,19 +222,19 @@ The scheduler runs inside monsterd — a tick loop (every 5s) that checks the sc
 
 ```bash
 # List all schedules
-monster schedule list
+huxley schedule list
 
 # Add an interval schedule (post a task to the board every hour)
-monster schedule add --type interval --every 3600 --action post_to_board --level task --title "hourly scan"
+huxley schedule add --type interval --every 3600 --action post_to_board --level task --title "hourly scan"
 
 # Add a daily schedule
-monster schedule add --type daily_at --at 02:00 --action post_to_board --level epic --title "morning summary"
+huxley schedule add --type daily_at --at 02:00 --action post_to_board --level epic --title "morning summary"
 
 # View firing history
-monster schedule history
+huxley schedule history
 
 # Remove a schedule
-monster schedule remove <id>
+huxley schedule remove <id>
 ```
 
 ## Autonomous Worker Loop
@@ -246,15 +249,15 @@ The Router is shared across ticks — models stay resident, no reload overhead b
 
 ## Apfel Auto-Start
 
-Gamma auto-starts Apfel lazily on the first `infer()` call via `ensure_apfel()`. A PID file at `~/.monster/apfeld.pid` tracks ownership: if monster started Apfel, `monster daemon stop` also kills it. If you started Apfel yourself, it is never touched.
+Gamma auto-starts Apfel lazily on the first `infer()` call via `ensure_apfel()`. A PID file at `~/.huxley/apfeld.pid` tracks ownership: if huxley started Apfel, `huxley daemon stop` also kills it. If you started Apfel yourself, it is never touched.
 
 ## Swarm (LAN Discovery + Delegation)
 
-Monsters on the same LAN automatically discover each other via **UDP multicast**. Each running `monsterd` broadcasts a heartbeat every 30s to `239.255.43.21:43210` and listens for heartbeats from peers. Peers are marked as lost after 90s of silence.
+Huxleys on the same LAN automatically discover each other via **UDP multicast**. Each running `huxleyd` broadcasts a heartbeat every 30s to `239.255.43.21:43210` and listens for heartbeats from peers. Peers are marked as lost after 90s of silence.
 
 ```
 ┌──────────────────┐        UDP multicast          ┌─────────────────┐
-│ monsterd (M2 Pro)│ ◄───── 239.255.43.21 ───────► │ monsterd (M5)   │
+│ huxleyd (M2 Pro)│ ◄───── 239.255.43.21 ───────► │ huxleyd (M5)   │
 │ port 8083        │                               │ port 8083       │
 │ castes: αβγ      │                               │ castes: αγ      │
 └──────────────────┘                               └─────────────────┘
@@ -263,12 +266,12 @@ Monsters on the same LAN automatically discover each other via **UDP multicast**
 Discovery is **zero-config** — no registry, no configuration, no external dependencies. If two daemons are on the same LAN, they find each other automatically.
 
 ```bash
-# List known LAN peers (requires monsterd running)
-monster swarm peers
+# List known LAN peers (requires huxleyd running)
+huxley swarm peers
 # γ|swarm|peer|●|m2-mini-32gb         |:8083|castes=αβγ|load=0.0|age=12s
 
 # Show swarm status
-monster swarm status
+huxley swarm status
 # γ|swarm|status|total=1|active=1
 ```
 
@@ -351,13 +354,13 @@ swarm:
 
 ## Session Journal & Compaction
 
-Every caste writes an append-only JSONL journal per session at `~/.monster/sessions/<sid>/<caste>/journal.jsonl`. Journals survive crashes (corrupt trailing lines are skipped on read).
+Every caste writes an append-only JSONL journal per session at `~/.huxley/sessions/<sid>/<caste>/journal.jsonl`. Journals survive crashes (corrupt trailing lines are skipped on read).
 
 When a journal exceeds 30 entries, the caste auto-compacts: it self-summarises the middle portion into a system message, preserving the first 2 turns and the last 10 verbatim. The rewrite reduces token waste while retaining conversational context.
 
 ```bash
 # Manual compaction (uses Beta by default)
-monster compact --caste b
+huxley compact --caste b
 ```
 
 ## Requirements
@@ -373,8 +376,8 @@ monster compact --caste b
 
 ```bash
 # Clone the repository
-git clone git@github.com:PeteHaughie/monster.git
-cd monster
+git clone git@github.com:PeteHaughie/Huxley.git
+cd Huxley
 
 # Install the package and all dependencies
 pip install -e .
@@ -383,47 +386,47 @@ pip install -e .
 apfel --serve
 
 # Initialise the harness
-monster init
+huxley init
 ```
 
 ## Quick Start
 
 ```bash
 # Show version
-monster --version
+huxley --version
 
 # Initialise a session in the current directory
-monster init
+huxley init
 
 # Show current session info
-monster session
+huxley session
 
-# List available skills (from ~/.agents/skills/ + ~/.monster/skills/)
-monster skills
+# List available skills (from ~/.agents/skills/ + ~/.huxley/skills/)
+huxley skills
 
 # List all harness modules
-monster modules
+huxley modules
 
 # Discover harness API surface
-monster api
+huxley api
 
 # Route a prompt through Gamma caste (requires apfel --serve)
-monster infer γ "extract all email addresses from this text"
+huxley infer γ "extract all email addresses from this text"
 
 # Route a prompt through Beta caste (requires mlx-lm)
-monster infer β "summarise the key points"
+huxley infer β "summarise the key points"
 
 # Route a prompt through Alpha caste (requires llama.cpp + Gemma 4)
-monster infer α "what should I work on next?"
+huxley infer α "what should I work on next?"
 
 # Route through cloud endpoint (requires cloud config)
-monster cloud "explain quantum computing"
+huxley cloud "explain quantum computing"
 
 # Dry-run a self-mod patch
-monster patch harness/cli.py
+huxley patch harness/cli.py
 
 # Apply a self-mod patch
-monster patch --apply harness/config.py
+huxley patch --apply harness/config.py
 ```
 
 ## Commands
@@ -432,61 +435,61 @@ monster patch --apply harness/config.py
 
 | Command | Description |
 |---------|-------------|
-| `monster --version` | Print version |
-| `monster init` | Initialise .monster session in directory |
-| `monster session` | Show current session info |
-| `monster skills` | List available skills from both skill directories |
-| `monster infer <caste> <prompt>` | Route prompt through a caste (α, β, or γ) |
-| `monster api` | List all functions and classes across harness modules |
-| `monster modules` | List all harness modules |
-| `monster models` | List GGUF models in `~/.monster/models/` |
-| `monster cloud <prompt>` | Route prompt via cloud endpoint |
-| `monster patch [--apply] <file>` | Dry-run or apply a self-mod patch |
-| `monster compact [--caste]` | Compact session journal via summarisation |
-| `monster daemon start\|stop\|status` | Manage monster background daemon |
-| `monster schedule list\|add\|remove\|history` | Manage scheduled tasks |
-| `monster swarm peers\|status` | LAN peer discovery and swarm status |
+| `huxley --version` | Print version |
+| `huxley init` | Initialise .huxley session in directory |
+| `huxley session` | Show current session info |
+| `huxley skills` | List available skills from both skill directories |
+| `huxley infer <caste> <prompt>` | Route prompt through a caste (α, β, or γ) |
+| `huxley api` | List all functions and classes across harness modules |
+| `huxley modules` | List all harness modules |
+| `huxley models` | List GGUF models in `~/.huxley/models/` |
+| `huxley cloud <prompt>` | Route prompt via cloud endpoint |
+| `huxley patch [--apply] <file>` | Dry-run or apply a self-mod patch |
+| `huxley compact [--caste]` | Compact session journal via summarisation |
+| `huxley daemon start\|stop\|status` | Manage huxley background daemon |
+| `huxley schedule list\|add\|remove\|history` | Manage scheduled tasks |
+| `huxley swarm peers\|status` | LAN peer discovery and swarm status |
 
 ### Board (Kanban Job Queue)
 
 | Command | Description |
 |---------|-------------|
-| `monster board list [--level] [--state]` | List tasks, optionally filtered |
-| `monster board post <level> <title>` | Post a new task (epic/task/unit) |
-| `monster board show <task-id>` | Show full task details |
-| `monster board claim <level> --caste <caste>` | Pull next available task into in_progress |
-| `monster board complete <task-id> [--result]` | Mark task as done with result |
-| `monster board delete <task-id>` | Delete a task from the board |
-| `monster board serve start [--port]` | Start Kanban web UI daemon (default 8080) |
-| `monster board serve stop` | Stop board daemon |
-| `monster board serve status` | Check board daemon status |
+| `huxley board list [--level] [--state]` | List tasks, optionally filtered |
+| `huxley board post <level> <title>` | Post a new task (epic/task/unit) |
+| `huxley board show <task-id>` | Show full task details |
+| `huxley board claim <level> --caste <caste>` | Pull next available task into in_progress |
+| `huxley board complete <task-id> [--result]` | Mark task as done with result |
+| `huxley board delete <task-id>` | Delete a task from the board |
+| `huxley board serve start [--port]` | Start Kanban web UI daemon (default 8080) |
+| `huxley board serve stop` | Stop board daemon |
+| `huxley board serve status` | Check board daemon status |
 
-### Daemon (monsterd)
+### Daemon (huxleyd)
 
 | Command | Description |
 |---------|-------------|
-| `monster daemon start` | Start monsterd in background |
-| `monster daemon stop` | Stop monsterd |
-| `monster daemon status` | Check if monsterd is running |
+| `huxley daemon start` | Start huxleyd in background |
+| `huxley daemon stop` | Stop huxleyd |
+| `huxley daemon status` | Check if huxleyd is running |
 
 ### Scheduler
 
 | Command | Description |
 |---------|-------------|
-| `monster schedule list` | List all schedules |
-| `monster schedule add <type> <interval/daily_at>` | Add a schedule |
-| `monster schedule remove <id>` | Remove a schedule |
-| `monster schedule history [<id>]` | View firing history |
+| `huxley schedule list` | List all schedules |
+| `huxley schedule add <type> <interval/daily_at>` | Add a schedule |
+| `huxley schedule remove <id>` | Remove a schedule |
+| `huxley schedule history [<id>]` | View firing history |
 
 ### Compaction
 
 | Command | Description |
 |---------|-------------|
-| `monster compact [--caste]` | Compact session journal via summarisation |
+| `huxley compact [--caste]` | Compact session journal via summarisation |
 
 ## Configuration
 
-`~/.monster/config.yaml` is auto-generated on first `monster init`:
+`~/.huxley/config.yaml` is auto-generated on first `huxley init`:
 
 ```yaml
 alpha:
@@ -529,22 +532,22 @@ harness:
 
 The harness loads skills from two directories, checked in order:
 
-1. **`~/.monster/skills/`** — Monster-specific skills (highest priority)
+1. **`~/.huxley/skills/`** — Huxley-specific skills (highest priority)
 2. **`~/.agents/skills/`** — Generic shared skills (compatible with other agent frameworks)
 
-If the same skill name exists in both, the monster version wins. This prevents monster-specific skills (which may depend on harness architecture) from polluting the shared `~/.agents/` namespace.
+If the same skill name exists in both, the huxley version wins. This prevents huxley-specific skills (which may depend on harness architecture) from polluting the shared `~/.agents/` namespace.
 
 ### Skill Format
 
 ```
-~/.monster/skills/<skill-name>/SKILL.md
+~/.huxley/skills/<skill-name>/SKILL.md
 ```
 
 Each skill is a markdown file with YAML frontmatter:
 
 ```markdown
 ---
-name: my-monster-skill
+name: my-huxley-skill
 description: What this skill does
 ---
 
@@ -556,7 +559,7 @@ Skill instructions and system prompts...
 The harness can read, patch, and hot-reload its own source code:
 
 - **Introspection** (`harness/selfmod/introspect.py`): AST-based API surface discovery. Maps all modules, classes, functions with line numbers.
-- **Patcher** (`harness/selfmod/patcher.py`): Diff generation, dry-run, apply with backup, rollback. Patches stored in `~/.monster/patches/`.
+- **Patcher** (`harness/selfmod/patcher.py`): Diff generation, dry-run, apply with backup, rollback. Patches stored in `~/.huxley/patches/`.
 - **Hot-Reload** (`harness/selfmod/restart.py`): SIGHUP-triggered `os.execv` restart. Register with `register_reload_handler()`.
 
 All self-mods are non-destructive by default (`dry_run=True`). Rollback available by patch ID.
@@ -578,12 +581,12 @@ Cloud responses masquerade as Beta-caste messages in the harness message protoco
 ## Project Structure
 
 ```
-monster/
+Huxley/
 ├── harness/
 │   ├── __init__.py          # Package version
 │   ├── __main__.py          # python -m harness
 │   ├── cli.py               # Entry point with 15+ commands
-│   ├── config.py            # YAML config, ~/.monster/ bootstrap
+│   ├── config.py            # YAML config, ~/.huxley/ bootstrap
 │   ├── board/
 │   │   ├── __init__.py
 │   │   ├── __main__.py      # Board daemon subprocess entry point
@@ -603,7 +606,7 @@ monster/
 │   │   └── router.py        # Caste message dispatcher (shared across ticks)
 │   ├── daemon/
 │   │   ├── __init__.py
-│   │   ├── lifecycle.py     # monsterd start/stop/status
+│   │   ├── lifecycle.py     # huxleyd start/stop/status
 │   │   ├── server.py        # HTTP control API server
 │   │   └── scheduler.py     # Tick loop, schedule registry, autonomous worker
 │   ├── memory/
@@ -614,7 +617,7 @@ monster/
 │   │   └── vk_cache.py      # TurboQuant KV cache lifecycle
 │   ├── skill/
 │   │   ├── __init__.py
-│   │   ├── loader.py        # Dual-path skill loader (monster + agents)
+│   │   ├── loader.py        # Dual-path skill loader (huxley + agents)
 │   │   └── registry.py      # Cached skill registry
 │   ├── cloud/
 │   │   ├── __init__.py

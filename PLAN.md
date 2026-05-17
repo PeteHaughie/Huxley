@@ -1,4 +1,4 @@
-# 1BitMonster — AI Agent Harness
+# Huxley — AI Agent Harness
 
 ## Concept
 
@@ -34,14 +34,14 @@ User ←→ α (Gemma 4 + MTP + TurboQuant)
 
 ### Memory System
 
-1. **VK Cache (TurboQuant)**: In-process KV cache at 4.5 bits/element. Persisted to `~/.monster/<session>/cache/`.
-2. **Vector DB (Chroma)**: Semantic memory in `~/.monster/<session>/interlink/`.
+1. **VK Cache (TurboQuant)**: In-process KV cache at 4.5 bits/element. Persisted to `~/.huxley/<session>/cache/`.
+2. **Vector DB (Chroma)**: Semantic memory in `~/.huxley/<session>/interlink/`.
 3. **MemQ Graph**: Entity-relation graph. Nodes = concepts/files/agents, edges = relationships.
 
 ### Session Lifecycle
 
 ```
-~/.monster/
+~/.huxley/
   registry.json          # path → session-id mapping
   config.yaml            # global harness config
   sessions/
@@ -55,7 +55,7 @@ User ←→ α (Gemma 4 + MTP + TurboQuant)
       alpha/             # Alpha session scratch
 ```
 
-Each project directory gets a `.monster` symlink → `~/.monster/sessions/<uuid>/`.
+Each project directory gets a `.huxley` symlink → `~/.huxley/sessions/<uuid>/`.
 
 ## Structured Message Protocol
 

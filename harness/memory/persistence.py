@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from harness.config import MONSTER_HOME, SESSIONS_DIR, REGISTRY_PATH
+from harness.config import HUXLEY_HOME, SESSIONS_DIR, REGISTRY_PATH
 
 
 class SessionStore:
@@ -67,7 +67,7 @@ def _load_registry() -> dict:
 
 
 def _save_registry(registry: dict):
-    MONSTER_HOME.mkdir(parents=True, exist_ok=True)
+    HUXLEY_HOME.mkdir(parents=True, exist_ok=True)
     with open(REGISTRY_PATH, "w") as f:
         json.dump(registry, f, indent=2)
 

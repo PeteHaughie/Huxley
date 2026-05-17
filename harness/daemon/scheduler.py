@@ -7,12 +7,12 @@ from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable, Optional
 
-from harness.config import load_config, MONSTER_HOME, MONSTER_BOARD_DIR
+from harness.config import load_config, HUXLEY_HOME, HUXLEY_BOARD_DIR
 from harness.board import JobBoard, Task, Level, State
 from harness.swarm.discovery import DiscoveryService
 from harness.swarm.peer import PeerTable
 
-SCHEDULER_DIR = MONSTER_HOME / "scheduler"
+SCHEDULER_DIR = HUXLEY_HOME / "scheduler"
 SCHEDULES_PATH = SCHEDULER_DIR / "schedules.json"
 HISTORY_PATH = SCHEDULER_DIR / "history.json"
 
@@ -132,7 +132,7 @@ def _check_idle(board: JobBoard, when: dict) -> bool:
     active = [t for t in tasks if t.state in (State.BACKLOG, State.READY, State.IN_PROGRESS)]
     if active:
         return False
-    mtimes = [p.stat().st_mtime for p in MONSTER_BOARD_DIR.glob("*.json")]
+    mtimes = [p.stat().st_mtime for p in HUXLEY_BOARD_DIR.glob("*.json")]
     if not mtimes:
         return True
     latest = max(mtimes)

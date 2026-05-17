@@ -8,11 +8,11 @@ WORKER_PORT = 8084
 LEADER_PORT = 8083
 MULTICAST_PORT = 43210
 MULTICAST_GROUP = "239.255.43.21"
-PID_PATH = Path.home() / ".monster" / "monsterd.pid"
-LOG_PATH = Path.home() / ".monster" / "monsterd.log"
+PID_PATH = Path.home() / ".huxley" / "huxleyd.pid"
+LOG_PATH = Path.home() / ".huxley" / "huxleyd.log"
 
 def _build_announce(hostname, port, castes="βγ", load=0.0):
-    return json.dumps({"type":"monster_announce","hostname":hostname,"port":port,"castes":castes,"load":load,"version":"0.1.0"}).encode()
+    return json.dumps({"type":"huxley_announce","hostname":hostname,"port":port,"castes":castes,"load":load,"version":"0.1.0"}).encode()
 
 def _lan_ips():
     import subprocess as sp
@@ -98,7 +98,7 @@ def stop_leader():
         PID_PATH.unlink(missing_ok=True)
 
 def start_leader():
-    env = os.environ.copy(); env["MONSTERD_PORT"] = str(LEADER_PORT)
+    env = os.environ.copy(); env["HUXLEYD_PORT"] = str(LEADER_PORT)
     proc = subprocess.Popen([sys.executable,"-m","harness.daemon"],
         stdout=open(LOG_PATH,"a"), stderr=subprocess.STDOUT, start_new_session=True)
     PID_PATH.write_text(str(proc.pid))

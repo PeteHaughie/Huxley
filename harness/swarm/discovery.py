@@ -16,7 +16,7 @@ BUFFER_SIZE = 2048
 
 def _build_announce(hostname: str, daemon_port: int, castes: str = "αβγ", load: float = 0.0, version: str = "0.1.0", instance_id: str = "") -> bytes:
     payload = {
-        "type": "monster_announce",
+        "type": "huxley_announce",
         "hostname": hostname,
         "port": daemon_port,
         "castes": castes,
@@ -30,7 +30,7 @@ def _build_announce(hostname: str, daemon_port: int, castes: str = "αβγ", loa
 def _parse_announce(data: bytes, addr: tuple) -> Optional[dict]:
     try:
         payload = json.loads(data.decode())
-        if payload.get("type") != "monster_announce":
+        if payload.get("type") != "huxley_announce":
             return None
         return {
             "addr": addr[0],
@@ -108,7 +108,7 @@ def test_multicast() -> dict:
                 pass
         recv.settimeout(3.0)
         r["recv_ok"] = True
-        payload = json.dumps({"type": "monster_announce", "hostname": "test", "port": 0}).encode()
+        payload = json.dumps({"type": "huxley_announce", "hostname": "test", "port": 0}).encode()
         send = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
         send.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         send.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
