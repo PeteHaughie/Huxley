@@ -1,4 +1,5 @@
 from __future__ import annotations
+import gc
 from harness.caste._base import CasteBase
 from harness.comms.message import Message, Caste, Action, ContextHint
 from harness.config import load_config
@@ -17,9 +18,9 @@ class Beta(CasteBase):
         self._model = None
         self._tokenizer = None
 
-    def _load_mlx(self) -> str | None:
+    def _load_mlx(self, model_name: str) -> str | None:
         import mlx_lm
-        self._model, self._tokenizer = mlx_lm.load(self.primary_model)
+        self._model, self._tokenizer = mlx_lm.load(model_name)
         return None
 
     def _load_llamacpp(self, model_path: str) -> str | None:
@@ -38,7 +39,7 @@ class Beta(CasteBase):
         errs = []
         if self.primary_engine == "mlx":
             try:
-                return self._load_mlx()
+                return self._load_mlx(self.primary_model)
             except Exception as e:
                 errs.append(f"mlx({self.primary_model}): {e}")
         elif self.primary_engine == "llama.cpp":
@@ -49,12 +50,50 @@ class Beta(CasteBase):
         if self.fallback_model:
             try:
                 if self.fallback_engine == "mlx":
-                    return self._load_mlx()
+                    return self._load_mlx(self.fallback_model)
                 else:
                     return self._load_llamacpp(self.fallback_model)
             except Exception as e:
                 errs.append(f"fallback({self.fallback_model}): {e}")
         raise RuntimeError(" | ".join(errs))
+
+    def _reset_model(self):
+        self._model = None
+        self._tokenizer = None
+        gc.collect()
+
+    def _recovery_ctx_size(self) -> int:
+        if self.ctx_size > 24576:
+            return 24576
+        return max(8192, self.ctx_size // 2)
+
+    def _run_generation(self, messages: list[dict], max_tok: int) -> str:
+        if hasattr(self._tokenizer, "apply_chat_template"):
+            import mlx_lm
+            formatted = self._tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            return mlx_lm.generate(
+                self._model, self._tokenizer,
+                prompt=formatted, max_tokens=max_tok,
+                temp=0.1, verbose=False,
+            )
+        response = self._model.create_chat_completion(
+            messages=messages, max_tokens=max_tok,
+            temperature=0.1, stop=None,
+        )
+        return response.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+    def _recover_and_retry(self, messages: list[dict], max_tok: int, error: Exception) -> str:
+        if "llama_decode returned -3" not in str(error):
+            raise error
+        retry_ctx = self._recovery_ctx_size()
+        if retry_ctx == self.ctx_size:
+            raise error
+        old_ctx = self.ctx_size
+        self._reset_model()
+        self.ctx_size = retry_ctx
+        print(f"γ|beta|recover|ctx {old_ctx}->{retry_ctx}|decode -3", flush=True)
+        self._load()
+        return self._run_generation(messages, max_tok)
 
     def infer(self, msg: Message) -> Message:
         try:
@@ -85,20 +124,18 @@ class Beta(CasteBase):
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": prompt}]
         max_tok = msg.token_budget.get("output", 128)
         try:
-            if hasattr(self._tokenizer, "apply_chat_template"):
-                import mlx_lm
-                formatted = self._tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-                response = mlx_lm.generate(
-                    self._model, self._tokenizer,
-                    prompt=formatted, max_tokens=max_tok,
-                    temp=0.1, verbose=False,
+            response = self._run_generation(messages, max_tok)
+        except Exception as e:
+            try:
+                response = self._recover_and_retry(messages, max_tok, e)
+            except Exception as retry_error:
+                return Message(
+                    caste=Caste.BETA,
+                    action=Action.INFER,
+                    payload={"error": str(retry_error)},
+                    session=msg.session,
                 )
-            else:
-                response = self._model.create_chat_completion(
-                    messages=messages, max_tokens=max_tok,
-                    temperature=0.1, stop=None,
-                )
-                response = response.get("choices", [{}])[0].get("message", {}).get("content", "")
+        try:
             if msg.session:
                 journal.append("user", prompt)
                 journal.append("assistant", response.strip())

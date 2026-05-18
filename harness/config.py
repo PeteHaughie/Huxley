@@ -19,7 +19,7 @@ DEFAULT_CONFIG = {
         "draft_model": "~/.huxley/models/gemma-4-E4B-it-assistant-Q4_K_M.gguf",
         "cache_type_k": "q4_0",
         "cache_type_v": "q4_0",
-        "ctx_size": 32768,
+        "ctx_size": 65536,
         "ngl": 99,
         "mtp": False,
         "draft_block_size": 3,
@@ -28,7 +28,7 @@ DEFAULT_CONFIG = {
     "beta": {
         "engine": "llama.cpp",
         "model": "~/.huxley/models/Bonsai-8B.gguf",
-        "ctx_size": 8192,
+        "ctx_size": 65536,
         "fallback_engine": "mlx",
         "fallback_model": "prism-ml/Ternary-Bonsai-8B",
     },
@@ -96,7 +96,12 @@ def load_config() -> dict:
         return DEFAULT_CONFIG
     with open(DEFAULT_CONFIG_PATH) as f:
         cfg = yaml.safe_load(f) or {}
+    repaired = False
     if _repair_legacy_model_aliases(cfg):
+        repaired = True
+    if _repair_legacy_paths(cfg):
+        repaired = True
+    if repaired:
         save_config(cfg)
     merged = _deep_merge_dicts(DEFAULT_CONFIG, cfg)
     _resolve_model_paths(merged)
@@ -150,6 +155,34 @@ def _repair_legacy_model_aliases(cfg: dict) -> bool:
     return repaired
 
 
+def _repair_legacy_paths(cfg: dict) -> bool:
+    home = str(Path.home())
+    repaired = False
+    legacy_prefixes = (
+        "~/.monster/",
+        f"{home}/.monster/",
+    )
+    replacement_prefixes = (
+        "~/.huxley/",
+        f"{home}/.huxley/",
+    )
+
+    def _repair_value(value):
+        nonlocal repaired
+        if isinstance(value, dict):
+            return {k: _repair_value(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [_repair_value(v) for v in value]
+        if isinstance(value, str):
+            for legacy, replacement in zip(legacy_prefixes, replacement_prefixes):
+                if value.startswith(legacy):
+                    repaired = True
+                    return replacement + value[len(legacy):]
+        return value
+
+    for key, value in list(cfg.items()):
+        cfg[key] = _repair_value(value)
+    return repaired
 def save_config(cfg: dict):
     ensure_huxley_dirs()
     with open(DEFAULT_CONFIG_PATH, "w") as f:
