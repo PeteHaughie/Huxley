@@ -223,17 +223,30 @@ curl http://127.0.0.1:8083/v1/chat/completions \
 curl http://127.0.0.1:8083/v1/chat/completions \
   -H 'Content-Type: application/json' \
   -d '{"model":"alpha","messages":[{"role":"user","content":"Plan a refactor for the scheduler."}]}'
+
+# Stream chat chunks from beta
+curl -N http://127.0.0.1:8083/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"beta","stream":true,"messages":[{"role":"user","content":"Reply in one short line."}]}'
+
+# Stream chat chunks from alpha
+curl -N http://127.0.0.1:8083/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"alpha","stream":true,"messages":[{"role":"user","content":"Reply in one short line."}]}'
 ```
 
 Current compatibility scope:
 
 - `GET /v1/models`
 - `POST /v1/chat/completions`
-- non-streaming requests only
+- both JSON and `stream=true` SSE responses
+- exposed model IDs: `alpha`, `beta`
+- terminal streaming marker: `data: [DONE]`
 
 Live smoke test against a running daemon:
 
 ```bash
+# one-shot plus streaming smoke tests
 HUXLEY_LIVE_API_TEST=1 python -m unittest test_openai_api_live.py -v
 ```
 

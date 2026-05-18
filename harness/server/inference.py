@@ -1,6 +1,7 @@
 from __future__ import annotations
 import httpx
-from typing import Optional, AsyncGenerator, Any
+import json
+from typing import Optional, Iterator
 
 
 class OpenAICompatibleClient:
@@ -42,3 +43,38 @@ class OpenAICompatibleClient:
                 return resp.status_code == 200
         except Exception:
             return False
+
+    def stream_chat(
+        self,
+        messages: list[dict],
+        max_tokens: Optional[int] = None,
+        temperature: float = 0.0,
+    ) -> Iterator[dict | str]:
+        body = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "stream": True,
+        }
+        if max_tokens is not None:
+            body["max_tokens"] = max_tokens
+
+        with httpx.Client(timeout=self.timeout) as client:
+            with client.stream(
+                "POST",
+                f"{self.endpoint}/chat/completions",
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json=body,
+            ) as resp:
+                resp.raise_for_status()
+                for line in resp.iter_lines():
+                    if not line:
+                        continue
+                    if line.startswith("data: "):
+                        payload = line[6:]
+                    else:
+                        continue
+                    if payload == "[DONE]":
+                        yield payload
+                        continue
+                    yield json.loads(payload)

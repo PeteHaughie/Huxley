@@ -13,6 +13,7 @@ class _FakeScheduler:
 
     def __init__(self):
         self.calls = []
+        self.stream_calls = []
 
     def openai_models(self) -> list[dict]:
         return [
@@ -48,6 +49,36 @@ class _FakeScheduler:
                 }
             ],
             "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        }
+
+    def openai_chat_completion_stream(
+        self,
+        model: str,
+        messages: list[dict],
+        max_tokens: int | None = None,
+        temperature: float = 0.0,
+    ):
+        self.stream_calls.append(
+            {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": temperature,
+            }
+        )
+        yield {
+            "id": "chatcmpl-stream",
+            "object": "chat.completion.chunk",
+            "created": 123,
+            "model": model,
+            "choices": [{"index": 0, "delta": {"content": "ok"}, "finish_reason": None}],
+        }
+        yield {
+            "id": "chatcmpl-stream",
+            "object": "chat.completion.chunk",
+            "created": 123,
+            "model": model,
+            "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
         }
 
 
@@ -112,12 +143,13 @@ class OpenAIAPITests(unittest.TestCase):
             headers={"Content-Type": "application/json"},
             method="POST",
         )
-        with self.assertRaises(urllib.error.HTTPError) as ctx:
-            urllib.request.urlopen(req, timeout=5)
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = resp.read().decode()
 
-        self.assertEqual(ctx.exception.code, 400)
-        payload = json.loads(ctx.exception.read())
-        self.assertIn("stream=true is not supported", payload["error"]["message"])
+        self.assertIn('data: {"id": "chatcmpl-stream"', payload)
+        self.assertIn("data: [DONE]", payload)
+        self.assertEqual(len(self.fake_scheduler.stream_calls), 1)
+        self.assertEqual(self.fake_scheduler.stream_calls[0]["model"], "alpha")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import gc
+from typing import Iterator
 from harness.caste._base import CasteBase
 from harness.comms.message import Message, Caste, Action, ContextHint
 from harness.config import load_config
@@ -106,6 +107,81 @@ class Beta(CasteBase):
             return self._run_generation(messages, max_tokens, temperature=temperature)
         except Exception as e:
             return self._recover_and_retry(messages, max_tokens, e, temperature=temperature)
+
+    def stream_chat(self, messages: list[dict], max_tokens: int, temperature: float = 0.1) -> Iterator[dict]:
+        try:
+            self._load()
+        except ImportError as e:
+            raise RuntimeError(f"missing dep: {e}") from e
+        except Exception as e:
+            raise RuntimeError(f"model load failed: {e}") from e
+
+        try:
+            yield from self._stream_generation(messages, max_tokens, temperature=temperature)
+        except Exception as e:
+            yield from self._recover_and_stream(messages, max_tokens, e, temperature=temperature)
+
+    def _stream_generation(self, messages: list[dict], max_tok: int, temperature: float = 0.1) -> Iterator[dict]:
+        if hasattr(self._tokenizer, "apply_chat_template"):
+            import mlx_lm
+            formatted = self._tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            finish_reason = "stop"
+            generated_any = False
+            for chunk in mlx_lm.stream_generate(
+                self._model,
+                self._tokenizer,
+                prompt=formatted,
+                max_tokens=max_tok,
+                temp=temperature,
+            ):
+                text = getattr(chunk, "text", "")
+                if text:
+                    generated_any = True
+                    yield {"delta": text, "finish_reason": None}
+                finish = getattr(chunk, "finish_reason", None)
+                if finish:
+                    finish_reason = finish
+            if not generated_any:
+                yield {"delta": "", "finish_reason": finish_reason}
+            else:
+                yield {"delta": "", "finish_reason": finish_reason}
+            return
+
+        stream = self._model.create_chat_completion(
+            messages=messages,
+            max_tokens=max_tok,
+            temperature=temperature,
+            stop=None,
+            stream=True,
+        )
+        finish_reason = "stop"
+        yielded = False
+        for chunk in stream:
+            choice = chunk.get("choices", [{}])[0]
+            delta = choice.get("delta", {}).get("content", "")
+            finish = choice.get("finish_reason")
+            if delta:
+                yielded = True
+                yield {"delta": delta, "finish_reason": None}
+            if finish:
+                finish_reason = finish
+        if not yielded:
+            yield {"delta": "", "finish_reason": finish_reason}
+        else:
+            yield {"delta": "", "finish_reason": finish_reason}
+
+    def _recover_and_stream(self, messages: list[dict], max_tok: int, error: Exception, temperature: float = 0.1) -> Iterator[dict]:
+        if "llama_decode returned -3" not in str(error):
+            raise error
+        retry_ctx = self._recovery_ctx_size()
+        if retry_ctx == self.ctx_size:
+            raise error
+        old_ctx = self.ctx_size
+        self._reset_model()
+        self.ctx_size = retry_ctx
+        print(f"γ|beta|recover|ctx {old_ctx}->{retry_ctx}|decode -3", flush=True)
+        self._load()
+        yield from self._stream_generation(messages, max_tok, temperature=temperature)
 
     def infer(self, msg: Message) -> Message:
         prompt = _fmt_beta_prompt(msg)

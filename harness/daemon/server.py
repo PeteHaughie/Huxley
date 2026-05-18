@@ -39,6 +39,22 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
     def _send_error_json(self, status: int, message: str):
         self._send({"error": {"message": message, "type": "invalid_request_error"}}, status=status)
 
+    def _begin_sse(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "close")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.end_headers()
+
+    def _write_sse_event(self, payload: dict | str):
+        if isinstance(payload, str):
+            data = payload
+        else:
+            data = json.dumps(payload)
+        self.wfile.write(f"data: {data}\n\n".encode())
+        self.wfile.flush()
+
     def _api_enabled(self) -> bool:
         return load_config().get("api", {}).get("enabled", True)
 
@@ -129,9 +145,6 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 self._send_error_json(403, "OpenAI-compatible API is restricted to localhost")
                 return
             body = self._read_body()
-            if body.get("stream"):
-                self._send_error_json(400, "stream=true is not supported")
-                return
             model = body.get("model")
             if not model:
                 self._send_error_json(400, "model is required")
@@ -151,6 +164,27 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 temperature = float(body.get("temperature", 0.0))
             except (TypeError, ValueError):
                 self._send_error_json(400, "temperature must be numeric")
+                return
+            if body.get("stream"):
+                try:
+                    self._begin_sse()
+                    for chunk in _scheduler.openai_chat_completion_stream(
+                        model=model,
+                        messages=messages,
+                        max_tokens=max_tokens,
+                        temperature=temperature,
+                    ):
+                        self._write_sse_event(chunk)
+                    self._write_sse_event("[DONE]")
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except Exception as e:
+                    try:
+                        self._write_sse_event(
+                            {"error": {"message": str(e), "type": "invalid_request_error"}}
+                        )
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
                 return
             try:
                 response = _scheduler.openai_chat_completion(
@@ -224,7 +258,7 @@ def run_daemon(port: int = DAEMON_PORT):
     _ensure_scheduler_dir()
     _scheduler.start()
     addr = ("0.0.0.0", port)
-    server = http.server.HTTPServer(addr, DaemonHandler)
+    server = http.server.ThreadingHTTPServer(addr, DaemonHandler)
     print(f"γ|huxleyd|listen|http://0.0.0.0:{port}", flush=True)
     try:
         server.serve_forever()

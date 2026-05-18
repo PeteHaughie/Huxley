@@ -302,6 +302,20 @@ class SchedulerEngine:
             temperature=temperature,
         )
 
+    def openai_chat_completion_stream(
+        self,
+        model: str,
+        messages: list[dict],
+        max_tokens: int | None = None,
+        temperature: float = 0.0,
+    ):
+        return self._get_router().openai_chat_completion_stream(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+
     def execute_task(self, title: str, prompt: str) -> dict:
         triage_result = self._infer(prompt or title, Level.TASK.value)
         steps = self._parse_bullets(triage_result)
