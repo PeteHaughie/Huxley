@@ -654,6 +654,153 @@ When α detects all local EPICs are done and peers are idle:
 
 ---
 
+## 5. Caste Legibility, Capability Surfaces, and Project Memory
+
+**Goal**: Make the hierarchy and available powers instantly legible in the UI, while giving Huxley a richer memory of the project and its artifacts.
+
+### Caste Distinction in the UI
+
+The castes should be visually obvious at a glance, following the canonical *Brave New World* colour mapping:
+
+- **Alpha** — gray
+- **Beta** — mulberry / maroon
+- **Gamma** — green
+- **Delta** — khaki
+- **Epsilon** — black
+
+This should not just be decorative. The colour, badge, and wording should appear consistently in:
+
+- active model pickers
+- scheduler / daemon status
+- swarm peer lists
+- task execution traces
+- skill manifests and search results
+
+### Optional "Demoted Local" Hierarchy
+
+There is also a strong argument for **demoting all local castes by one rung in presentation**, so the best on-device model is clearly still beneath a frontier cloud model.
+
+Possible framing:
+
+- **Cloud / Frontier** — reserved top tier above all local execution
+- **Local Alpha-equivalent** presented as **Beta**
+- **Local Beta-equivalent** presented as **Gamma**
+- **Local Gamma-equivalent** presented as **Delta**
+- **Local Delta-equivalent** presented as **Epsilon**
+
+This keeps the *Brave New World* metaphor while making the practical truth explicit: frontier models are categorically more capable than any local node Huxley can run today.
+
+### Capability Catalogues
+
+Huxley should expose a first-class catalogue of what it can currently do, not just which model is loaded.
+
+#### MCP Servers
+
+- Installed MCP servers
+- Connection state: configured / reachable / authenticated / failing
+- Declared tools per server
+- Which castes can invoke which MCP-backed actions
+- Last successful call and recent failures
+
+#### Tool Use
+
+- Flat list of available tools with source (`builtin`, `MCP`, `daemon`, `swarm`)
+- Capability tags such as `file_read`, `file_write`, `shell`, `web`, `github`, `sqlite`
+- Safety / approval boundary for each tool
+- Per-caste allowlist so users can see what a Gamma can do vs what requires Beta or Alpha
+
+#### Skill Listing
+
+Two parallel registries should be browseable:
+
+- **Agent skills** — prompt-driven behaviours, orchestrators, specialist agents
+- **Huxley skills** — local registry skills, collected skills, and generated skills with lineage
+
+Each entry should show:
+
+- required / ideal caste
+- backing model or execution substrate
+- tools used
+- MCP dependencies
+- provenance / lineage
+- test status
+- whether it is local-only, swarm-capable, or cloud-backed
+
+#### Specialist Agents
+
+Huxley should support **specialised agents** that are intentionally constrained to a specific context window, toolset, and skill subset, with explicit descriptive prompts for narrow jobs.
+
+Examples:
+
+- rubber duck
+- security tester
+- code quality assurance
+- architecture reviewer
+- documentation editor
+
+Each specialist should declare:
+
+- system / role prompt
+- visible skills and excluded skills
+- tool access policy
+- required or preferred caste
+- expected output style
+- whether it is local, swarm-backed, or cloud-assisted
+
+This creates agents that are easier to trust because they are legible and bounded, rather than one giant generalist prompt trying to do everything.
+
+#### Specialist Management Pane
+
+There should be a dedicated pane for:
+
+- adding specialists
+- removing specialists
+- editing prompts, tool access, and visible skills
+- testing a specialist against a sample task
+- seeing which specialists are installed, enabled, or currently active
+
+#### Alpha Inference Panel
+
+An **Alpha inference panel** should sit alongside specialist management so the strongest available reasoning tier can be used to create, critique, and refine those specialists.
+
+That panel could support:
+
+- prompt drafting and prompt diffing
+- "improve this specialist" loops
+- capability-gap analysis: "what tools or skills is this specialist missing?"
+- red-team review before saving a new specialist
+- quick simulation runs against benchmark prompts
+
+### Historical / Project View
+
+Huxley should gain a proper historical and project-oriented memory browser rather than only session-level logs.
+
+- project timeline across sessions
+- file-centric history: "show me every time `scheduler.py` mattered"
+- artifact view for generated outputs, patches, reports, and exported files
+- ability to open historical file snapshots or rendered artifacts side-by-side with the current file
+- cross-links between session, task, file, skill, and artifact
+
+#### File View Artifacts
+
+Artifacts should be promoted to first-class objects, not just opaque attachments:
+
+- patch previews
+- generated code outputs
+- reports / summaries
+- screenshots and other captured media
+- imported or exported files associated with a session
+
+That would let Huxley answer questions like:
+
+- "show me the last three times we changed the daemon API"
+- "which session generated this patch?"
+- "find the artifact where the swarm auth design was first sketched"
+
+**Why**: Right now Huxley can be powerful without feeling legible. Better caste signalling, explicit capability catalogues, and a true project memory layer would make the system easier to trust, easier to browse, and easier to direct.
+
+---
+
 ## ✅ Completed
 
 ### Huxleyd (Background Daemon)
@@ -682,7 +829,9 @@ Idle consensus and stronger auth/policy controls are still future (see section 4
 
 1. **Daydreaming (Discovery only)** — cheap, passive, feeds curiosity engine
 2. **Session Archaeology** — needs data from huxleyd running for a while
-3. **Swarm auth + policy hardening** — secure delegated execution and clearer opt-in semantics
-4. **Swarm idle consensus** — distributed daydream sessions
-5. **Daydreaming (Full pipeline)** — needs archaeology + swarm for distributed compute
-6. **Huxley Collective** — needs at least 2+ huxleys and 1 ratified skill
+3. **Caste legibility + capability catalogues** — high UX value, clarifies model/tool boundaries and specialist-agent affordances
+4. **Historical / project view + artifact browser** — compounds the value of archaeology data
+5. **Swarm auth + policy hardening** — secure delegated execution and clearer opt-in semantics
+6. **Swarm idle consensus** — distributed daydream sessions
+7. **Daydreaming (Full pipeline)** — needs archaeology + swarm for distributed compute
+8. **Huxley Collective** — needs at least 2+ huxleys and 1 ratified skill
