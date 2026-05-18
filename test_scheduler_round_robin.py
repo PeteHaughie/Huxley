@@ -1,6 +1,7 @@
 import unittest
 
-from harness.config import _deep_merge_dicts, _repair_legacy_model_aliases, DEFAULT_CONFIG
+from harness.config import _deep_merge_dicts, _repair_legacy_model_aliases, _repair_legacy_paths, DEFAULT_CONFIG
+from harness.board import Level, Task
 from harness.daemon.scheduler import SchedulerEngine, _peer_table
 
 
@@ -67,6 +68,24 @@ class SchedulerRoundRobinTests(unittest.TestCase):
             ["10.0.0.1:8081", "10.0.0.3:8083"],
         )
 
+    def test_peer_activity_snapshot_tracks_remote_contribution_details(self):
+        task = Task(level=Level.UNIT, title="Implement peer activity network card")
+
+        self.engine._begin_peer_activity("10.0.0.1:8081", task, "γ", Level.UNIT.value)
+        active = self.engine.peer_activity_snapshot()["10.0.0.1:8081"]
+
+        self.assertEqual(active["task_title"], task.title)
+        self.assertEqual(active["caste"], "γ")
+        self.assertEqual(active["contribution_level"], "unit")
+        self.assertEqual(active["status"], "active")
+        self.assertIsNone(active["finished_at"])
+
+        self.engine._end_peer_activity("10.0.0.1:8081", "completed")
+        completed = self.engine.peer_activity_snapshot()["10.0.0.1:8081"]
+
+        self.assertEqual(completed["status"], "completed")
+        self.assertIsNotNone(completed["finished_at"])
+
 
 class ConfigMergeTests(unittest.TestCase):
     def test_deep_merge_preserves_default_delegation_fields(self):
@@ -96,6 +115,19 @@ class ConfigMergeTests(unittest.TestCase):
         self.assertEqual(cfg["beta"]["fallback_model"], DEFAULT_CONFIG["beta"]["fallback_model"])
         self.assertEqual(cfg["gamma"]["model"], "apple-foundationmodel")
 
+    def test_repair_legacy_paths_rewrites_monster_home_paths(self):
+        cfg = {
+            "alpha": {"model": "~/.monster/models/gemma.gguf"},
+            "beta": {"model": "/Users/petehaughie/.monster/models/Bonsai-8B.gguf"},
+            "harness": {"models_dir": "~/.monster/models"},
+        }
+
+        repaired = _repair_legacy_paths(cfg)
+
+        self.assertTrue(repaired)
+        self.assertEqual(cfg["alpha"]["model"], "~/.huxley/models/gemma.gguf")
+        self.assertEqual(cfg["beta"]["model"], "/Users/petehaughie/.huxley/models/Bonsai-8B.gguf")
+        self.assertEqual(cfg["harness"]["models_dir"], "~/.huxley/models")
 
 if __name__ == "__main__":
     unittest.main()
