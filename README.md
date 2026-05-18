@@ -231,6 +231,12 @@ Current compatibility scope:
 - `POST /v1/chat/completions`
 - non-streaming requests only
 
+Live smoke test against a running daemon:
+
+```bash
+HUXLEY_LIVE_API_TEST=1 python -m unittest test_openai_api_live.py -v
+```
+
 ## Scheduler
 
 The scheduler runs inside huxleyd — a tick loop (every 5s) that checks the schedule registry and fires due actions. Schedules persist across restarts in `~/.huxley/scheduler/`.
