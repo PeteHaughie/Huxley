@@ -6,7 +6,7 @@ import os
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Iterator
 
 from harness.caste._base import CasteBase
 from harness.config import load_config
@@ -183,6 +183,35 @@ class Alpha(CasteBase):
             max_tokens=max_tokens,
             temperature=temperature,
         )
+
+    def stream_chat(self, messages: list[dict], max_tokens: int, temperature: float = 0.1) -> Iterator[dict]:
+        if not self.start_server():
+            raise RuntimeError(f"alpha server unavailable on port {ALPHA_PORT} — install llama.cpp or check config")
+        try:
+            for event in self.client().stream_chat(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            ):
+                if event == "[DONE]":
+                    break
+                if isinstance(event, dict):
+                    yield event
+        except Exception as e:
+            if not self._should_restart_for_error(e):
+                raise
+            print("γ|alpha|recover|restart server after upstream streaming failure", flush=True)
+            if not self._restart_server():
+                raise
+            for event in self.client().stream_chat(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+            ):
+                if event == "[DONE]":
+                    break
+                if isinstance(event, dict):
+                    yield event
 
     def infer(self, msg: Message) -> Message:
         try:

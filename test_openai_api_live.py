@@ -4,6 +4,7 @@ import sys
 import time
 import unittest
 import urllib.request
+import urllib.error
 
 
 LIVE_TEST_ENABLED = os.environ.get("HUXLEY_LIVE_API_TEST", "").lower() in {"1", "true", "yes", "on"}
@@ -26,6 +27,16 @@ class LiveOpenAIAPITests(unittest.TestCase):
         )
         with urllib.request.urlopen(req, timeout=LIVE_API_TIMEOUT) as resp:
             return json.loads(resp.read())
+
+    def _post_raw(self, path: str, body: dict) -> str:
+        req = urllib.request.Request(
+            f"{LIVE_API_BASE}{path}",
+            data=json.dumps(body).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=LIVE_API_TIMEOUT) as resp:
+            return resp.read().decode()
 
     def test_live_models_present_and_inference_timed(self):
         models_payload = self._get_json("/v1/models")
@@ -58,6 +69,31 @@ class LiveOpenAIAPITests(unittest.TestCase):
 
         print(
             f"live-openai-timings alpha={timings['alpha']:.3f}s beta={timings['beta']:.3f}s base={LIVE_API_BASE}",
+            file=sys.stderr,
+            flush=True,
+        )
+
+    def test_live_streaming_chat_completions(self):
+        timings = {}
+        for model in ("beta", "alpha"):
+            started = time.perf_counter()
+            payload = self._post_raw(
+                "/v1/chat/completions",
+                {
+                    "model": model,
+                    "messages": [{"role": "user", "content": f"Reply with one short line saying {model} stream ok."}],
+                    "max_tokens": 32,
+                    "temperature": 0.0,
+                    "stream": True,
+                },
+            )
+            elapsed = time.perf_counter() - started
+            timings[model] = elapsed
+            self.assertIn("data: ", payload)
+            self.assertIn("data: [DONE]", payload)
+
+        print(
+            f"live-openai-stream-timings alpha={timings['alpha']:.3f}s beta={timings['beta']:.3f}s base={LIVE_API_BASE}",
             file=sys.stderr,
             flush=True,
         )

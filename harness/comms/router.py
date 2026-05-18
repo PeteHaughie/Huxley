@@ -1,5 +1,6 @@
 from __future__ import annotations
 import time
+from typing import Iterator
 from harness.comms.message import Message, Caste, Action
 from harness.config import load_config
 
@@ -92,6 +93,59 @@ class Router:
             }
             return response
         raise RuntimeError("invalid response from model backend")
+
+    def openai_chat_completion_stream(
+        self,
+        model: str,
+        messages: list[dict],
+        max_tokens: int | None = None,
+        temperature: float = 0.0,
+    ) -> Iterator[dict]:
+        canonical_model, handler = self._resolve_openai_model(model)
+        max_output = max_tokens if max_tokens is not None else 512
+        created = int(time.time())
+        completion_id = f"chatcmpl-{created}"
+
+        if handler is self._alpha:
+            for chunk in self._alpha.stream_chat(messages, max_output, temperature=temperature):
+                yield self._normalize_alpha_stream_chunk(chunk, canonical_model, created, completion_id)
+            return
+
+        for item in self._beta.stream_chat(messages, max_output, temperature=temperature):
+            yield {
+                "id": completion_id,
+                "object": "chat.completion.chunk",
+                "created": created,
+                "model": canonical_model,
+                "choices": [
+                    {
+                        "index": 0,
+                        "delta": {"content": item.get("delta", "")} if item.get("delta", "") else {},
+                        "finish_reason": item.get("finish_reason"),
+                    }
+                ],
+            }
+
+    def _normalize_alpha_stream_chunk(self, chunk: dict, model: str, created: int, completion_id: str) -> dict:
+        normalized = dict(chunk)
+        normalized["id"] = chunk.get("id", completion_id)
+        normalized["object"] = "chat.completion.chunk"
+        normalized["created"] = chunk.get("created", created)
+        normalized["model"] = model
+        choices = []
+        for index, choice in enumerate(chunk.get("choices", [])):
+            delta = choice.get("delta", {})
+            if not isinstance(delta, dict):
+                delta = {}
+            choices.append(
+                {
+                    "index": choice.get("index", index),
+                    "delta": delta,
+                    "finish_reason": choice.get("finish_reason"),
+                }
+            )
+        normalized["choices"] = choices or [{"index": 0, "delta": {}, "finish_reason": "stop"}]
+        return normalized
 
     def _resolve_openai_model(self, model: str) -> tuple[str, object]:
         cfg = load_config().get("api", {})
