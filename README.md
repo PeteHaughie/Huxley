@@ -10,6 +10,50 @@ Hyper-efficient local-first AI agent harness with a three-tier caste system.
 
 All communication within the harness is curt and perfunctionary (caveman style) to keep context windows to a bare minimum.
 
+## Desktop MVP
+
+A Tauri desktop workspace now lives under `desktop/`. The MVP keeps the native shell thin and reuses existing localhost-powered Huxley surfaces where possible:
+
+- native **inference pane** with caste switching
+- embedded **kanban board** web UI
+- native **historical projects** pane for browsing archived project artefacts and materialized outputs
+- native **editor** pane for folder-scoped file browsing/editing, terminal commands, and inference
+- lightweight **network** view backed by swarm endpoints
+- **settings** view for desktop preferences plus raw `~/.huxley/config.yaml` editing
+- native start/stop controls for `huxleyd` and `boardd`
+
+```bash
+cd desktop
+npm install
+npm run tauri dev
+```
+
+The desktop app shells out to `python3 -m harness ...` from the repository root by default, so it is intended as a repo-local MVP rather than a packaged distribution yet.
+
+## Project artefacts
+
+Completed EPICs are archived under `~/.huxley/projects/<timestamp>-<slug>/`.
+
+- `summary.md` contains the research/addendum output
+- `tasks/` contains archived TASK and UNIT artefacts
+- `suggestions/` contains one folder per generated implementation suggestion
+
+Materialize a completed project into the current repository with:
+
+```bash
+huxley project materialize <project-name>
+```
+
+By default this writes into:
+
+```text
+./materialized-projects/<project-dir>/<suggestion-folder>/
+```
+
+If Alpha emits multiple implementation suggestions, Huxley keeps them in separate folders so they do not collide with each other.
+
+From the embedded board, completed EPIC cards can now send archived suggestion folders straight into the desktop editor pane or reveal them in the file manager for inspection.
+
 ## Architecture
 
 ```
