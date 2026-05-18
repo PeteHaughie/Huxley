@@ -67,22 +67,22 @@ class Beta(CasteBase):
             return 24576
         return max(8192, self.ctx_size // 2)
 
-    def _run_generation(self, messages: list[dict], max_tok: int) -> str:
+    def _run_generation(self, messages: list[dict], max_tok: int, temperature: float = 0.1) -> str:
         if hasattr(self._tokenizer, "apply_chat_template"):
             import mlx_lm
             formatted = self._tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
             return mlx_lm.generate(
                 self._model, self._tokenizer,
                 prompt=formatted, max_tokens=max_tok,
-                temp=0.1, verbose=False,
+                temp=temperature, verbose=False,
             )
         response = self._model.create_chat_completion(
             messages=messages, max_tokens=max_tok,
-            temperature=0.1, stop=None,
+            temperature=temperature, stop=None,
         )
         return response.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-    def _recover_and_retry(self, messages: list[dict], max_tok: int, error: Exception) -> str:
+    def _recover_and_retry(self, messages: list[dict], max_tok: int, error: Exception, temperature: float = 0.1) -> str:
         if "llama_decode returned -3" not in str(error):
             raise error
         retry_ctx = self._recovery_ctx_size()
@@ -93,25 +93,21 @@ class Beta(CasteBase):
         self.ctx_size = retry_ctx
         print(f"γ|beta|recover|ctx {old_ctx}->{retry_ctx}|decode -3", flush=True)
         self._load()
-        return self._run_generation(messages, max_tok)
+        return self._run_generation(messages, max_tok, temperature=temperature)
 
-    def infer(self, msg: Message) -> Message:
+    def complete_chat(self, messages: list[dict], max_tokens: int, temperature: float = 0.1) -> str:
         try:
             self._load()
         except ImportError as e:
-            return Message(
-                caste=Caste.BETA,
-                action=Action.INFER,
-                payload={"error": f"missing dep: {e}"},
-                session=msg.session,
-            )
+            raise RuntimeError(f"missing dep: {e}") from e
         except Exception as e:
-            return Message(
-                caste=Caste.BETA,
-                action=Action.INFER,
-                payload={"error": f"model load failed: {e}"},
-                session=msg.session,
-            )
+            raise RuntimeError(f"model load failed: {e}") from e
+        try:
+            return self._run_generation(messages, max_tokens, temperature=temperature)
+        except Exception as e:
+            return self._recover_and_retry(messages, max_tokens, e, temperature=temperature)
+
+    def infer(self, msg: Message) -> Message:
         prompt = _fmt_beta_prompt(msg)
         system = _beta_system_prompt(msg.context_hint)
         history = []
@@ -124,17 +120,14 @@ class Beta(CasteBase):
         messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": prompt}]
         max_tok = msg.token_budget.get("output", 128)
         try:
-            response = self._run_generation(messages, max_tok)
+            response = self.complete_chat(messages, max_tok, temperature=0.1)
         except Exception as e:
-            try:
-                response = self._recover_and_retry(messages, max_tok, e)
-            except Exception as retry_error:
-                return Message(
-                    caste=Caste.BETA,
-                    action=Action.INFER,
-                    payload={"error": str(retry_error)},
-                    session=msg.session,
-                )
+            return Message(
+                caste=Caste.BETA,
+                action=Action.INFER,
+                payload={"error": str(e)},
+                session=msg.session,
+            )
         try:
             if msg.session:
                 journal.append("user", prompt)

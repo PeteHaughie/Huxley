@@ -48,6 +48,12 @@ DEFAULT_CONFIG = {
         "port": 8083,
         "log_file": "~/.huxley/huxleyd.log",
     },
+    "api": {
+        "enabled": True,
+        "localhost_only": True,
+        "alpha_model_id": "alpha",
+        "beta_model_id": "beta",
+    },
     "scheduler": {
         "enabled": True,
         "tick_interval": 5,

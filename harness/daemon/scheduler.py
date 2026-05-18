@@ -262,9 +262,8 @@ class SchedulerEngine:
 
     def _infer(self, prompt: str, level: str, max_output: int = 512) -> str:
         from harness.comms import Message, Caste, Action
-        from harness.comms.router import Router
         if self._router is None:
-            self._router = Router()
+            self._router = self._get_router()
         caste_map = {"epic": Caste.ALPHA, "task": Caste.BETA, "unit": Caste.GAMMA}
         msg = Message(
             caste=caste_map[level],
@@ -279,6 +278,29 @@ class SchedulerEngine:
 
     def infer(self, prompt: str, level: str, max_output: int = 512) -> str:
         return self._infer(prompt, level, max_output)
+
+    def _get_router(self):
+        if self._router is None:
+            from harness.comms.router import Router
+            self._router = Router()
+        return self._router
+
+    def openai_models(self) -> list[dict]:
+        return self._get_router().openai_models()
+
+    def openai_chat_completion(
+        self,
+        model: str,
+        messages: list[dict],
+        max_tokens: int | None = None,
+        temperature: float = 0.0,
+    ) -> dict:
+        return self._get_router().openai_chat_completion(
+            model=model,
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
 
     def execute_task(self, title: str, prompt: str) -> dict:
         triage_result = self._infer(prompt or title, Level.TASK.value)
