@@ -63,6 +63,14 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             self._send([p.to_dict() for p in _peer_table.list_active()])
         elif path == "/v1/swarm/peers/all":
             self._send([p.to_dict() for p in _peer_table.list_all()])
+        elif path == "/v1/swarm/activity":
+            activity = _scheduler.peer_activity_snapshot()
+            peers = []
+            for peer in _peer_table.list_all():
+                item = peer.to_dict()
+                item["activity"] = activity.get(peer.key())
+                peers.append(item)
+            self._send(peers)
         elif path == "/v1/load":
             board = JobBoard()
             self._send({"load": len(board.list(state=State.IN_PROGRESS))})

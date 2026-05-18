@@ -253,7 +253,7 @@ def cmd_project(args):
             print("γ|project|list|none", flush=True)
             return
         for p in projects:
-            print(f"γ|project|{p['dir']}|{p['title'][:50]}|tasks={p['task_count']}|result={p['result_len']}b", flush=True)
+            print(f"γ|project|{p['dir']}|{p['title'][:50]}|tasks={p['task_count']}|suggestions={p.get('suggestion_count', 0)}|result={p['result_len']}b", flush=True)
     elif args.proj_cmd == "show":
         from harness.projects import get_project
         p = get_project(args.name)
@@ -264,6 +264,11 @@ def cmd_project(args):
         print(f"γ|project|dir|{p['dir']}", flush=True)
         print(f"γ|project|prompt|{p.get('prompt','')[:100]}", flush=True)
         print(f"γ|project|summary_len|{p['result_len']}b", flush=True)
+        for suggestion in p.get("suggestions", []):
+            print(
+                f"γ|project|suggestion|{suggestion['folder']}|files={suggestion['file_count']}|{suggestion['path']}",
+                flush=True,
+            )
         for t in p.get("tasks", []):
             icon = "●" if t["unit_count"] > 0 else "○"
             print(f"γ|project|task|{icon}|{t['id']}|{t['title'][:60]}|units={t['unit_count']}", flush=True)
@@ -283,6 +288,22 @@ def cmd_project(args):
             print(f"γ|project|not_found|{args.name}", flush=True)
             return
         print(p.get("summary", "(no summary)"), flush=True)
+    elif args.proj_cmd == "materialize":
+        from harness.projects import materialize_project
+        try:
+            result = materialize_project(args.name, destination=args.into, overwrite=args.force)
+        except (FileExistsError, ValueError) as e:
+            print(f"γ|project|materialize|err|{e}", flush=True)
+            return
+        if result is None:
+            print(f"γ|project|not_found|{args.name}", flush=True)
+            return
+        print(f"γ|project|materialize|root|{result['root']}", flush=True)
+        for suggestion in result["suggestions"]:
+            print(
+                f"γ|project|materialize|suggestion|{suggestion['folder']}|files={suggestion['file_count']}|{suggestion['path']}",
+                flush=True,
+            )
 
 
 def cmd_schedule(args):
@@ -552,6 +573,10 @@ def main():
     path_p.add_argument("name", help="Project directory name (partial match)")
     summary_p = proj_sub.add_parser("summary", help="Print project summary.md")
     summary_p.add_argument("name", help="Project directory name (partial match)")
+    materialize_p = proj_sub.add_parser("materialize", help="Copy generated project suggestions into working folders")
+    materialize_p.add_argument("name", help="Project directory name (partial match)")
+    materialize_p.add_argument("--into", help="Destination root (default: ./materialized-projects/<project>)")
+    materialize_p.add_argument("--force", action="store_true", help="Replace existing materialized suggestion folders")
 
     args = parser.parse_args()
     if args.command == "init":

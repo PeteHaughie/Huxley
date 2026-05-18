@@ -162,7 +162,28 @@ async function showDetail(id) {
     try {
       const proj = await api("GET", "/project-for/" + t.id);
       if (proj && proj.path) {
-        document.getElementById("project-link").innerHTML = `<div class="field"><label>archive</label><div style="font-size:0.75rem;color:#6c5ce7">${esc(proj.path)}</div></div>`;
+        const suggestions = Array.isArray(proj.suggestions) ? proj.suggestions : [];
+        const actions = suggestions.length
+          ? suggestions.map((suggestion, index) => `
+              <div class="field">
+                <label>suggestion ${index + 1}</label>
+                <div style="font-size:0.75rem;color:#6c5ce7">${esc(suggestion.folder || suggestion.name || suggestion.path || "")}</div>
+                <div class="btn-row">
+                  <button class="btn btn-primary" onclick='inspectFolder(${JSON.stringify(suggestion.path || proj.path)}, ${JSON.stringify(suggestion.folder || suggestion.name || "suggestion")})'>inspect in desktop</button>
+                  <button class="btn btn-secondary" onclick='revealFolder(${JSON.stringify(suggestion.path || proj.path)}, ${JSON.stringify(suggestion.folder || suggestion.name || "suggestion")})'>reveal folder</button>
+                </div>
+              </div>
+            `).join("")
+          : `
+              <div class="btn-row">
+                <button class="btn btn-primary" onclick='inspectFolder(${JSON.stringify(proj.path)}, ${JSON.stringify(proj.dir || "archive")})'>inspect archive</button>
+                <button class="btn btn-secondary" onclick='revealFolder(${JSON.stringify(proj.path)}, ${JSON.stringify(proj.dir || "archive")})'>reveal archive</button>
+              </div>
+            `;
+        document.getElementById("project-link").innerHTML = `
+          <div class="field"><label>archive</label><div style="font-size:0.75rem;color:#6c5ce7">${esc(proj.path)}</div></div>
+          ${actions}
+        `;
       }
     } catch (_) {}
   }
@@ -194,20 +215,54 @@ async function postTask() {
 }
 
 async function deleteTask(id) {
-  if (!confirm("delete this task?")) return;
+  if (!(await askConfirm("delete this task?"))) return;
   await api("DELETE", "/tasks/" + id);
   closeModal();
   await load();
 }
 
 async function clearBoard() {
-  if (!confirm("clear the entire board? this deletes every task.")) return;
+  if (!(await askConfirm("clear the entire board? this deletes every task."))) return;
   const res = await api("DELETE", "/tasks");
   closeModal();
   await load();
   setStatus(`cleared ${res.removed} task${res.removed === 1 ? "" : "s"}`);
 }
+function askConfirm(message) {
+  return new Promise(resolve => {
+    const m = document.getElementById("modalContent");
+    m.innerHTML = `
+      <h2>confirm</h2>
+      <div class="field"><div class="prompt">${esc(message)}</div></div>
+      <div class="btn-row">
+        <button class="btn btn-secondary" id="confirm-cancel">cancel</button>
+        <button class="btn btn-danger" id="confirm-ok">delete</button>
+      </div>`;
+    document.getElementById("modal").classList.add("open");
+    document.getElementById("confirm-cancel").onclick = () => {
+      closeModal();
+      resolve(false);
+    };
+    document.getElementById("confirm-ok").onclick = () => {
+      closeModal();
+      resolve(true);
+    };
+  });
+}
 function closeModal() { document.getElementById("modal").classList.remove("open"); }
+function sendDesktopMessage(type, path, label) {
+  if (window.parent && window.parent !== window) {
+    window.parent.postMessage({ type, path, label }, "*");
+    setStatus(`${label} sent to desktop`);
+    return;
+  }
+  navigator.clipboard?.writeText(path).then(
+    () => setStatus(`copied ${label} path`),
+    () => setStatus(path),
+  );
+}
+function inspectFolder(path, label) { sendDesktopMessage("huxley-open-folder", path, label); }
+function revealFolder(path, label) { sendDesktopMessage("huxley-reveal-folder", path, label); }
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 
 load();

@@ -47,10 +47,47 @@ class Alpha(CasteBase):
                 time.sleep(2)
         return False
 
+    def _listener_pid(self) -> Optional[int]:
+        try:
+            result = subprocess.run(
+                ["lsof", "-nP", "-t", f"-iTCP:{ALPHA_PORT}", "-sTCP:LISTEN"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            pid = result.stdout.strip().splitlines()
+            if pid:
+                return int(pid[0])
+        except Exception:
+            return None
+        return None
+
+    def _clear_stale_listener(self):
+        pid = self._listener_pid()
+        if pid is None:
+            return
+        if self._proc and self._proc.poll() is None and self._proc.pid == pid:
+            return
+        try:
+            os.kill(pid, signal.SIGTERM)
+            deadline = time.time() + 5
+            while time.time() < deadline:
+                try:
+                    os.kill(pid, 0)
+                    time.sleep(0.2)
+                except ProcessLookupError:
+                    break
+            print(f"γ|alpha|clear_listener|pid {pid}", flush=True)
+        except ProcessLookupError:
+            pass
+        except OSError as e:
+            print(f"γ|alpha|clear_listener_err|pid {pid}|{e}", flush=True)
+
     def start_server(self) -> bool:
         acfg = self.cfg["alpha"]
         if self._proc and self._proc.poll() is None:
             return True
+        self._clear_stale_listener()
 
         cmd = [
             "llama-server",
@@ -109,6 +146,33 @@ class Alpha(CasteBase):
             )
         return self._client
 
+    def _should_restart_for_error(self, err: Exception) -> bool:
+        text = str(err)
+        return "500 Internal Server Error" in text or "timed out" in text
+
+    def _restart_server(self) -> bool:
+        self.stop_server()
+        return self.start_server()
+
+    def _chat_with_recovery(self, messages: list[dict], max_tokens: int) -> dict:
+        try:
+            return self.client().chat(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=0.1,
+            )
+        except Exception as e:
+            if not self._should_restart_for_error(e):
+                raise
+            print("γ|alpha|recover|restart server after upstream failure", flush=True)
+            if not self._restart_server():
+                raise
+            return self.client().chat(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=0.1,
+            )
+
     def infer(self, msg: Message) -> Message:
         if not self.start_server():
             return Message(
@@ -127,10 +191,9 @@ class Alpha(CasteBase):
                     self._compact_journal(journal, msg)
                 history = journal.read(max_tokens=msg.token_budget.get("input", 4096))
             messages = history + [{"role": "user", "content": user_content}]
-            resp = self.client().chat(
+            resp = self._chat_with_recovery(
                 messages=messages,
                 max_tokens=msg.token_budget.get("output", 2048),
-                temperature=0.1,
             )
             msg_content = resp["choices"][0]["message"]
             content = msg_content.get("content", "") or msg_content.get("reasoning_content", "")
@@ -157,10 +220,9 @@ class Alpha(CasteBase):
             return
         cprompt = f"Condense this conversation into one paragraph preserving key facts, decisions, results, and current state. Drop greetings, pleasantries, and step-by-step reasoning:\n\n{text}"
         try:
-            resp = self.client().chat(
+            resp = self._chat_with_recovery(
                 messages=[{"role": "system", "content": "You are a precise summarizer. Output only the summary paragraph, no preamble."}, {"role": "user", "content": cprompt}],
                 max_tokens=msg.token_budget.get("output", 256),
-                temperature=0.1,
             )
             summary = resp["choices"][0]["message"]["content"].strip()
             if summary:

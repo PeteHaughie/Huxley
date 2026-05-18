@@ -162,6 +162,9 @@ class SchedulerEngine:
         }
         self._peer_failures: dict[str, float] = {}
         self._peer_selection_cursor: dict[str, str] = {}
+        self._peer_activity: dict[str, dict[str, Any]] = {}
+        self._peer_activity_lock = threading.Lock()
+        self._peer_activity_ttl = 120
 
     @property
     def running(self) -> bool:
@@ -289,6 +292,52 @@ class SchedulerEngine:
         compiled = "\n\n".join(f"## {s}\n{u['result']}" for s, u in zip(steps, units))
         return {"task_result": compiled, "units": units}
 
+    def _begin_peer_activity(self, peer_key: str, task: Task, caste: str, contribution_level: str):
+        now = datetime.now(timezone.utc).isoformat()
+        with self._peer_activity_lock:
+            self._peer_activity[peer_key] = {
+                "peer_key": peer_key,
+                "task_id": task.id,
+                "task_title": task.title,
+                "task_level": task.level.value,
+                "contribution_level": contribution_level,
+                "caste": caste,
+                "status": "active",
+                "started_at": now,
+                "updated_at": now,
+                "finished_at": None,
+            }
+
+    def _end_peer_activity(self, peer_key: str, status: str):
+        now = datetime.now(timezone.utc).isoformat()
+        with self._peer_activity_lock:
+            activity = self._peer_activity.get(peer_key)
+            if activity is None:
+                return
+            activity["status"] = status
+            activity["updated_at"] = now
+            activity["finished_at"] = now
+
+    def peer_activity_snapshot(self) -> dict[str, dict]:
+        cutoff = time.time() - self._peer_activity_ttl
+        snapshot: dict[str, dict] = {}
+        with self._peer_activity_lock:
+            stale_keys = []
+            for peer_key, activity in self._peer_activity.items():
+                finished_at = activity.get("finished_at")
+                if finished_at:
+                    try:
+                        finished_ts = datetime.fromisoformat(finished_at).timestamp()
+                    except ValueError:
+                        finished_ts = 0
+                    if finished_ts and finished_ts < cutoff:
+                        stale_keys.append(peer_key)
+                        continue
+                snapshot[peer_key] = dict(activity)
+            for peer_key in stale_keys:
+                del self._peer_activity[peer_key]
+        return snapshot
+
     def _parse_bullets(self, text: str) -> list[str]:
         import re
         text = text.strip()
@@ -357,12 +406,14 @@ class SchedulerEngine:
                 parent = board.get(task.parent_id)
                 if parent:
                     for peer in peers:
+                        self._begin_peer_activity(peer, parent, "βγ", Level.TASK.value)
                         resp = self._delegate_to_peer(
                             peer,
                             "/v1/tasks/execute",
                             {"title": parent.title, "prompt": parent.prompt},
                         )
                         if resp and "task_result" in resp:
+                            self._end_peer_activity(peer, "completed")
                             self._mark_peer_selected("βγ", peer)
                             for child in board.children_of(parent.id):
                                 board.delete(child.id)
@@ -374,14 +425,18 @@ class SchedulerEngine:
                                 board.create(child)
                             print(f"γ|worker|delegate|{peer}|{parent.id[:8]}|task", flush=True)
                             return
+                        self._end_peer_activity(peer, "failed")
             for peer in self._select_peers("γ", max_load, selection):
+                self._begin_peer_activity(peer, task, "γ", Level.UNIT.value)
                 resp = self._delegate_to_peer(peer, "/v1/units/execute",
                                               {"prompt": task.prompt or task.title})
                 if resp and "result" in resp:
+                    self._end_peer_activity(peer, "completed")
                     self._mark_peer_selected("γ", peer)
                     board.complete(task.id, resp["result"])
                     print(f"γ|worker|delegate|{peer}|{task.id[:8]}|unit", flush=True)
                     return
+                self._end_peer_activity(peer, "failed")
             print(f"γ|worker|delegate_fallback|{task.id[:8]}|local", flush=True)
         result = self._infer(task.prompt or task.title, Level.UNIT.value)
         board.complete(task.id, result)
@@ -430,44 +485,39 @@ class SchedulerEngine:
         return result
 
     def _compile_project_files(self, epic: Task, board: JobBoard, proj_dir: Path):
-        import re
         summary = (epic.result or "")[:4000]
         prompt = (
             f"Generate the actual project files for this completed project.\n"
             f"Project: {epic.title}\n"
             f"Request: {epic.prompt}\n\n"
             f"Research summary:\n{summary}\n\n"
-            f"Output each file as:\n"
+            f"Produce one or more implementation suggestions.\n"
+            f"Always wrap each suggestion as:\n"
+            f"--- OPTION: short-name\n"
             f"--- FILE: path/to/filename.ext\n"
             f"<file contents>\n"
-            f"---\n"
-            f"Generate real, working code. Include README.md. Output ONLY the file blocks."
+            f"... more FILE blocks ...\n"
+            f"--- END OPTION\n\n"
+            f"If there is only one good implementation, output a single OPTION block.\n"
+            f"Keep each suggestion self-contained and namespace-safe.\n"
+            f"Each suggestion must include README.md. "
+            f"Output ONLY the OPTION and FILE blocks.\n"
         )
         try:
             result = self._infer(prompt, Level.EPIC.value, max_output=4096)
         except Exception as e:
             print(f"γ|worker|compile_err|{epic.id[:8]}|{e}", flush=True)
             return
-        blocks = re.split(r'^---\s+FILE:\s+', result, flags=re.MULTILINE)
+        from harness.projects import write_compiled_suggestions
+        suggestions = write_compiled_suggestions(proj_dir, result)
         written = 0
-        for block in blocks:
-            block = block.strip()
-            if not block:
-                continue
-            first_line = block.split('\n', 1)[0].strip()
-            content = block.split('\n', 1)[1] if '\n' in block else ''
-            if not first_line or not content:
-                continue
-            fpath = proj_dir / first_line
-            fpath.parent.mkdir(parents=True, exist_ok=True)
-            clean = content.strip()
-            clean = re.sub(r'^```\w*\n', '', clean)
-            clean = re.sub(r'\n```\s*$', '', clean)
-            fpath.write_text(clean)
-            written += 1
-            print(f"γ|worker|compile_file|{fpath.name}", flush=True)
+        for suggestion in suggestions:
+            written += suggestion["file_count"]
+            print(f"γ|worker|compile_suggestion|{suggestion['folder']}|{suggestion['file_count']} files", flush=True)
         if written > 0:
-            print(f"γ|worker|compile_ok|{epic.id[:8]}|{written} files|{proj_dir}", flush=True)
+            print(f"γ|worker|compile_ok|{epic.id[:8]}|{len(suggestions)} suggestions|{written} files|{proj_dir}", flush=True)
+        else:
+            print(f"γ|worker|compile_empty|{epic.id[:8]}|no file blocks", flush=True)
 
     def _beta_review(self, task: Task, board: JobBoard):
         children = board.children_of(task.id)
