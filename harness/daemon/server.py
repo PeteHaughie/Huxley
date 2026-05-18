@@ -5,6 +5,7 @@ import http.server
 import urllib.parse
 from harness.daemon.scheduler import SchedulerEngine, Schedule, _ensure_scheduler_dir, _peer_table
 from harness.board import JobBoard, State
+from harness.config import load_config
 
 DAEMON_PORT = int(os.environ.get("HUXLEYD_PORT", "8083"))
 
@@ -35,17 +36,46 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         return parsed.path.rstrip("/") or "/", urllib.parse.parse_qs(parsed.query)
 
+    def _send_error_json(self, status: int, message: str):
+        self._send({"error": {"message": message, "type": "invalid_request_error"}}, status=status)
+
+    def _api_enabled(self) -> bool:
+        return load_config().get("api", {}).get("enabled", True)
+
+    def _localhost_only(self) -> bool:
+        return load_config().get("api", {}).get("localhost_only", True)
+
+    def _is_loopback_client(self) -> bool:
+        host = (self.client_address[0] or "").strip()
+        return host in {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
+
     def do_GET(self):
         path, qs = self._path_parts()
         if path == "/health":
             self._send({"status": "ok", "scheduler_running": _scheduler.running})
+        elif path == "/v1/models":
+            if not self._api_enabled():
+                self._send({"error": "not found"}, 404)
+                return
+            if self._localhost_only() and not self._is_loopback_client():
+                self._send_error_json(403, "OpenAI-compatible API is restricted to localhost")
+                return
+            self._send({"object": "list", "data": _scheduler.openai_models()})
         elif path == "/v1/status":
             schedules = _scheduler.list_schedules()
+            api_cfg = load_config().get("api", {})
+            daemon_url = f"http://127.0.0.1:{DAEMON_PORT}/v1"
             self._send({
                 "running": True,
                 "scheduler_running": _scheduler.running,
                 "schedules": len(schedules),
                 "uptime": None,
+                "openai_api": {
+                    "enabled": api_cfg.get("enabled", True),
+                    "localhost_only": api_cfg.get("localhost_only", True),
+                    "url": daemon_url,
+                    "models": [m["id"] for m in _scheduler.openai_models()],
+                },
             })
         elif path == "/v1/schedules":
             self._send([s.to_dict() for s in _scheduler.list_schedules()])
@@ -91,7 +121,55 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
 
     def do_POST(self):
         path, _ = self._path_parts()
-        if path == "/v1/schedules":
+        if path == "/v1/chat/completions":
+            if not self._api_enabled():
+                self._send({"error": "not found"}, 404)
+                return
+            if self._localhost_only() and not self._is_loopback_client():
+                self._send_error_json(403, "OpenAI-compatible API is restricted to localhost")
+                return
+            body = self._read_body()
+            if body.get("stream"):
+                self._send_error_json(400, "stream=true is not supported")
+                return
+            model = body.get("model")
+            if not model:
+                self._send_error_json(400, "model is required")
+                return
+            messages = body.get("messages")
+            if not isinstance(messages, list) or not messages:
+                self._send_error_json(400, "messages must be a non-empty list")
+                return
+            max_tokens = body.get("max_tokens")
+            if max_tokens is not None:
+                try:
+                    max_tokens = int(max_tokens)
+                except (TypeError, ValueError):
+                    self._send_error_json(400, "max_tokens must be an integer")
+                    return
+            try:
+                temperature = float(body.get("temperature", 0.0))
+            except (TypeError, ValueError):
+                self._send_error_json(400, "temperature must be numeric")
+                return
+            try:
+                response = _scheduler.openai_chat_completion(
+                    model=model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                )
+            except ValueError as e:
+                self._send_error_json(404, str(e))
+                return
+            except RuntimeError as e:
+                self._send_error_json(503, str(e))
+                return
+            except Exception as e:
+                self._send_error_json(500, str(e))
+                return
+            self._send(response)
+        elif path == "/v1/schedules":
             body = self._read_body()
             s = Schedule(
                 when=body.get("when", {"type": "interval", "every": 3600}),

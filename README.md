@@ -199,6 +199,38 @@ huxley daemon stop
 
 The daemon exposes an HTTP control API on `localhost:8083` (`HUXLEYD_PORT`) for internal CLI commands. It stays resident so castes don't need to reload models between invocations.
 
+### OpenAI-Compatible Inference API
+
+When `huxleyd` is running, it also exposes a localhost-only OpenAI-style inference surface at `http://127.0.0.1:8083/v1`.
+
+```bash
+# Start the daemon
+huxley daemon start
+
+# Check the API endpoint and exposed models
+huxley daemon status
+# γ|huxleyd|running|...|openai=http://127.0.0.1:8083/v1|models=alpha,beta
+
+# List exposed models
+curl http://127.0.0.1:8083/v1/models
+
+# Chat with beta
+curl http://127.0.0.1:8083/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"beta","messages":[{"role":"user","content":"Summarise this repo in one line."}]}'
+
+# Chat with alpha
+curl http://127.0.0.1:8083/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"alpha","messages":[{"role":"user","content":"Plan a refactor for the scheduler."}]}'
+```
+
+Current compatibility scope:
+
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+- non-streaming requests only
+
 ## Scheduler
 
 The scheduler runs inside huxleyd — a tick loop (every 5s) that checks the schedule registry and fires due actions. Schedules persist across restarts in `~/.huxley/scheduler/`.
