@@ -6,3 +6,6 @@ build/
 .venv/
 *.gguf
 .huxley
+desktop/node_modules/
+desktop/src-tauri/target/
+materialized-projects/
