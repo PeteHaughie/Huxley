@@ -4,6 +4,7 @@ import unittest
 import urllib.error
 import urllib.request
 from http.server import HTTPServer
+from unittest import mock
 
 from harness.daemon import server as daemon_server
 
@@ -14,6 +15,9 @@ class _FakeScheduler:
     def __init__(self):
         self.calls = []
         self.stream_calls = []
+
+    def list_schedules(self) -> list:
+        return []
 
     def openai_models(self) -> list[dict]:
         return [
@@ -113,6 +117,12 @@ class OpenAIAPITests(unittest.TestCase):
         model_ids = [item["id"] for item in payload["data"]]
         self.assertEqual(model_ids, ["gemma-4-e4b", "alpha", "ternary-bonsai-8b", "beta"])
 
+    def test_status_route_reports_actual_server_port(self):
+        with urllib.request.urlopen(f"{self.base_url}/v1/status", timeout=5) as resp:
+            payload = json.loads(resp.read())
+
+        self.assertEqual(payload["openai_api"]["url"], f"{self.base_url}/v1")
+
     def test_chat_completions_route_forwards_request_shape(self):
         req = urllib.request.Request(
             f"{self.base_url}/v1/chat/completions",
@@ -139,7 +149,7 @@ class OpenAIAPITests(unittest.TestCase):
         self.assertEqual(self.fake_scheduler.calls[0]["request_options"], {})
 
     def test_models_route_disabled_returns_openai_style_404(self):
-        with unittest.mock.patch.object(
+        with mock.patch.object(
             daemon_server,
             "load_config",
             return_value={"api": {"enabled": False, "localhost_only": True}},
@@ -248,6 +258,47 @@ class OpenAIAPITests(unittest.TestCase):
         self.assertEqual(ctx.exception.code, 400)
         payload = json.loads(ctx.exception.read())
         self.assertEqual(payload["error"]["message"], "invalid JSON body")
+
+    def test_chat_completions_rejects_non_json_content_type(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "messages": [{"role": "user", "content": "hello"}],
+                }
+            ).encode(),
+            headers={"Content-Type": "text/plain"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 415)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(payload["error"]["message"], "Content-Type must be application/json")
+
+    def test_chat_completions_rejects_remote_origin(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "messages": [{"role": "user", "content": "hello"}],
+                }
+            ).encode(),
+            headers={
+                "Content-Type": "application/json",
+                "Origin": "https://example.com",
+            },
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 403)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(payload["error"]["message"], "Origin is not allowed")
 
     def test_chat_completions_rejects_invalid_ranges(self):
         req = urllib.request.Request(

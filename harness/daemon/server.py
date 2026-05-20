@@ -67,11 +67,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _api_config(self) -> dict:
-        cached = getattr(self, "_cached_api_cfg", None)
-        if cached is None:
-            cached = load_config().get("api", {})
-            self._cached_api_cfg = cached
-        return cached
+        return load_config().get("api", {})
 
     def _api_enabled(self) -> bool:
         return self._api_config().get("enabled", True)
@@ -117,7 +113,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/v1/status":
             schedules = _scheduler.list_schedules()
             api_cfg = load_config().get("api", {})
-            daemon_url = f"http://127.0.0.1:{DAEMON_PORT}/v1"
+            daemon_url = f"http://127.0.0.1:{self.server.server_port}/v1"
             self._send({
                 "running": True,
                 "scheduler_running": _scheduler.running,
@@ -180,6 +176,14 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 return
             if self._localhost_only() and not self._is_loopback_client():
                 self._send_error_json(403, "OpenAI-compatible API is restricted to localhost")
+                return
+            content_type = self.headers.get_content_type()
+            if content_type != "application/json":
+                self._send_error_json(415, "Content-Type must be application/json")
+                return
+            origin = self.headers.get("Origin", "").strip()
+            if origin and not self._is_loopback_origin(origin):
+                self._send_error_json(403, "Origin is not allowed")
                 return
             try:
                 body = self._read_body()
