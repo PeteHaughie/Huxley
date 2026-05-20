@@ -294,12 +294,14 @@ class SchedulerEngine:
         messages: list[dict],
         max_tokens: int | None = None,
         temperature: float = 0.0,
+        request_options: dict | None = None,
     ) -> dict:
         return self._get_router().openai_chat_completion(
             model=model,
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
+            request_options=request_options,
         )
 
     def openai_chat_completion_stream(
@@ -308,12 +310,14 @@ class SchedulerEngine:
         messages: list[dict],
         max_tokens: int | None = None,
         temperature: float = 0.0,
+        request_options: dict | None = None,
     ):
         return self._get_router().openai_chat_completion_stream(
             model=model,
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
+            request_options=request_options,
         )
 
     def execute_task(self, title: str, prompt: str) -> dict:
