@@ -25,7 +25,8 @@ class Router:
             Caste.BETA: self._beta,
             Caste.ALPHA: self._alpha,
         }
-        self._api_cfg = dict(load_config().get("api", {}))
+        api_cfg = load_config().get("api", {})
+        self._api_cfg = dict(api_cfg) if isinstance(api_cfg, dict) else {}
 
     def dispatch(self, msg: Message) -> Message:
         handler = self._routes.get(msg.caste)
