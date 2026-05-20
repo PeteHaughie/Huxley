@@ -97,6 +97,12 @@ class OpenAIAPITests(unittest.TestCase):
         self.original_scheduler = daemon_server._scheduler
         self.fake_scheduler = _FakeScheduler()
         daemon_server._scheduler = self.fake_scheduler
+        self.load_config_patcher = mock.patch.object(
+            daemon_server,
+            "load_config",
+            side_effect=lambda: {"api": {"enabled": True, "localhost_only": True}},
+        )
+        self.load_config_patcher.start()
         self.server = HTTPServer(("127.0.0.1", 0), daemon_server.DaemonHandler)
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
@@ -107,6 +113,7 @@ class OpenAIAPITests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(timeout=5)
+        self.load_config_patcher.stop()
         daemon_server._scheduler = self.original_scheduler
 
     def test_models_route_returns_openai_model_list(self):

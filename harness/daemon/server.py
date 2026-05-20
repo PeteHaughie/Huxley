@@ -271,8 +271,6 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                     for chunk in stream_iter:
                         self._write_sse_event(chunk)
                     self._write_sse_event("[DONE]")
-                except StopIteration:
-                    self._write_sse_event("[DONE]")
                 except (BrokenPipeError, ConnectionResetError):
                     return
                 except OpenAIRequestError as e:

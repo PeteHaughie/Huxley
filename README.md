@@ -197,11 +197,11 @@ huxley daemon status
 huxley daemon stop
 ```
 
-The daemon exposes an HTTP control API on `localhost:8083` (`HUXLEYD_PORT`) for internal CLI commands. It stays resident so castes don't need to reload models between invocations.
+The daemon exposes an HTTP control API on `localhost:8083` by default (`HUXLEYD_PORT`) for internal CLI commands. It stays resident so castes don't need to reload models between invocations.
 
 ### OpenAI-Compatible Inference API
 
-When `huxleyd` is running, it also exposes a localhost-only OpenAI-style inference surface at `http://127.0.0.1:8083/v1`.
+When `huxleyd` is running, it also exposes an OpenAI-style inference surface at `http://127.0.0.1:8083/v1` by default (`HUXLEYD_PORT` and `api.localhost_only` are configurable).
 
 ```bash
 # Start the daemon
