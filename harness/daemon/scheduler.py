@@ -165,6 +165,7 @@ class SchedulerEngine:
         self._peer_activity: dict[str, dict[str, Any]] = {}
         self._peer_activity_lock = threading.Lock()
         self._peer_activity_ttl = 120
+        self._inference_lock = threading.Lock()
 
     @property
     def running(self) -> bool:
@@ -262,8 +263,6 @@ class SchedulerEngine:
 
     def _infer(self, prompt: str, level: str, max_output: int = 512) -> str:
         from harness.comms import Message, Caste, Action
-        if self._router is None:
-            self._router = self._get_router()
         caste_map = {"epic": Caste.ALPHA, "task": Caste.BETA, "unit": Caste.GAMMA}
         msg = Message(
             caste=caste_map[level],
@@ -271,7 +270,10 @@ class SchedulerEngine:
             payload={"prompt": prompt},
             token_budget={"input": 4096, "output": max_output},
         )
-        resp = self._router.dispatch(msg)
+        with self._inference_lock:
+            if self._router is None:
+                self._router = self._get_router()
+            resp = self._router.dispatch(msg)
         if "error" in resp.payload:
             raise RuntimeError(resp.payload["error"])
         return resp.payload.get("result", "")
@@ -296,13 +298,14 @@ class SchedulerEngine:
         temperature: float = 0.0,
         request_options: dict | None = None,
     ) -> dict:
-        return self._get_router().openai_chat_completion(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            request_options=request_options,
-        )
+        with self._inference_lock:
+            return self._get_router().openai_chat_completion(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                request_options=request_options,
+            )
 
     def openai_chat_completion_stream(
         self,
@@ -312,13 +315,14 @@ class SchedulerEngine:
         temperature: float = 0.0,
         request_options: dict | None = None,
     ):
-        return self._get_router().openai_chat_completion_stream(
-            model=model,
-            messages=messages,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            request_options=request_options,
-        )
+        with self._inference_lock:
+            return self._get_router().openai_chat_completion_stream(
+                model=model,
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                request_options=request_options,
+            )
 
     def execute_task(self, title: str, prompt: str) -> dict:
         triage_result = self._infer(prompt or title, Level.TASK.value)
