@@ -87,7 +87,7 @@ class Alpha(CasteBase):
         acfg = self.cfg["alpha"]
         if self._proc and self._proc.poll() is None:
             return True
-        if self.health():
+        if self.client().health():
             return True
         self._clear_stale_listener()
 
