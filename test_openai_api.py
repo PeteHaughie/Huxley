@@ -430,6 +430,18 @@ class OpenAIAPITests(unittest.TestCase):
         self.assertEqual(payload["object"], "list")
         self.assertIsNone(resp.headers.get("Access-Control-Allow-Origin"))
 
+    def test_openai_routes_allow_cors_from_loopback_origins(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/models",
+            headers={"Origin": "http://localhost:3000"},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read())
+
+        self.assertEqual(payload["object"], "list")
+        self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "*")
+
     def test_non_openai_routes_do_not_allow_cross_origin_reads_from_remote_origins(self):
         req = urllib.request.Request(
             f"{self.base_url}/health",
@@ -441,6 +453,49 @@ class OpenAIAPITests(unittest.TestCase):
 
         self.assertEqual(payload["status"], "ok")
         self.assertIsNone(resp.headers.get("Access-Control-Allow-Origin"))
+
+    def test_non_openai_routes_do_not_allow_cors_from_loopback_origins(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/health",
+            headers={"Origin": "http://localhost:3000"},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read())
+
+        self.assertEqual(payload["status"], "ok")
+        self.assertIsNone(resp.headers.get("Access-Control-Allow-Origin"))
+
+    def test_chat_completions_streaming_sends_done_after_error(self):
+        from harness.comms.router import OpenAIRequestError as _OAIError
+
+        def error_after_first_chunk(**_kwargs):
+            yield {
+                "id": "chatcmpl-err",
+                "object": "chat.completion.chunk",
+                "created": 123,
+                "model": "alpha",
+                "choices": [{"index": 0, "delta": {"content": "partial"}, "finish_reason": None}],
+            }
+            raise _OAIError("mid-stream error")
+
+        self.fake_scheduler.openai_chat_completion_stream = error_after_first_chunk
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "stream": True,
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = resp.read().decode()
+
+        self.assertIn("data: [DONE]", payload)
 
 
 if __name__ == "__main__":

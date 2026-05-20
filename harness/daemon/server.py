@@ -19,8 +19,8 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
-    def _apply_cors_headers(self, path: str | None = None):
-        allow_origin = self._cors_origin(path)
+    def _apply_cors_headers(self):
+        allow_origin = self._cors_origin()
         if not allow_origin:
             return
         self.send_header("Access-Control-Allow-Origin", allow_origin)
@@ -67,7 +67,9 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.flush()
 
     def _api_config(self) -> dict:
-        return load_config().get("api", {})
+        if not hasattr(self, "_req_api_cfg"):
+            self._req_api_cfg = load_config().get("api", {})
+        return self._req_api_cfg
 
     def _api_enabled(self) -> bool:
         return self._api_config().get("enabled", True)
@@ -87,12 +89,15 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
     def _is_loopback_origin(self, origin: str) -> bool:
         return self._is_loopback_host(urllib.parse.urlparse(origin).hostname)
 
-    def _cors_origin(self, path: str | None = None) -> str | None:
+    def _cors_origin(self) -> str | None:
         origin = self.headers.get("Origin", "").strip()
         if not origin or "\r" in origin or "\n" in origin:
             return None
         parsed = urllib.parse.urlparse(origin)
         if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return None
+        route, _ = self._path_parts()
+        if not self._is_openai_route(route):
             return None
         if self._is_loopback_host(parsed.hostname):
             return "*"
@@ -273,6 +278,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 except OpenAIRequestError as e:
                     try:
                         self._write_sse_event({"error": {"message": str(e), "type": e.error_type}})
+                        self._write_sse_event("[DONE]")
                     except (BrokenPipeError, ConnectionResetError):
                         pass
                 except Exception as e:
@@ -281,6 +287,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                         self._write_sse_event(
                             {"error": {"message": "internal server error", "type": "server_error"}}
                         )
+                        self._write_sse_event("[DONE]")
                     except (BrokenPipeError, ConnectionResetError):
                         pass
                 return
@@ -350,9 +357,8 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             self._send({"error": "not found"}, 404)
 
     def do_OPTIONS(self):
-        path, _ = self._path_parts()
         self.send_response(204)
-        self._apply_cors_headers(path)
+        self._apply_cors_headers()
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
