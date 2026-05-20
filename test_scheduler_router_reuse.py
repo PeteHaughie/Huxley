@@ -1,7 +1,9 @@
+import sys
+import types
 import unittest
 from unittest.mock import patch
 
-from harness.comms.router import Router
+from harness.comms.router import OpenAIRequestError, Router
 from harness.daemon.scheduler import SchedulerEngine
 
 
@@ -56,6 +58,50 @@ class RouterOpenAIModelTests(unittest.TestCase):
         self.assertIn("beta", model_ids)
         self.assertNotIn("", model_ids)
         load_config_mock.assert_called_once()
+
+    def test_beta_tool_calling_raises_request_error_for_json_and_streaming(self):
+        fake_alpha_module = types.ModuleType("harness.caste.alpha")
+        fake_alpha_module.Alpha = lambda: object()
+        fake_beta_module = types.ModuleType("harness.caste.beta")
+        fake_beta_module.Beta = lambda: object()
+        fake_gamma_module = types.ModuleType("harness.caste.gamma")
+        fake_gamma_module.Gamma = lambda: object()
+        with (
+            patch("harness.comms.router.load_config", return_value={}),
+            patch.dict(
+                sys.modules,
+                {
+                    "harness.caste.alpha": fake_alpha_module,
+                    "harness.caste.beta": fake_beta_module,
+                    "harness.caste.gamma": fake_gamma_module,
+                },
+            ),
+        ):
+            router = Router()
+
+            with self.assertRaises(OpenAIRequestError) as json_ctx:
+                router.openai_chat_completion(
+                    model="beta",
+                    messages=[{"role": "user", "content": "hello"}],
+                    request_options={"tools": [{"type": "function", "function": {"name": "ping"}}]},
+                )
+
+            with self.assertRaises(OpenAIRequestError) as stream_ctx:
+                next(
+                    router.openai_chat_completion_stream(
+                        model="beta",
+                        messages=[{"role": "user", "content": "hello"}],
+                        request_options={"tools": [{"type": "function", "function": {"name": "ping"}}]},
+                    )
+                )
+
+            self.assertEqual(
+                str(json_ctx.exception),
+                "tool calling is not supported for beta via the OpenAI-compatible API",
+            )
+            self.assertEqual(json_ctx.exception.status, 400)
+            self.assertEqual(json_ctx.exception.error_type, "invalid_request_error")
+            self.assertEqual(str(stream_ctx.exception), str(json_ctx.exception))
 
 
 if __name__ == "__main__":
