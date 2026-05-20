@@ -17,8 +17,10 @@ class _FakeScheduler:
 
     def openai_models(self) -> list[dict]:
         return [
-            {"id": "alpha", "object": "model", "created": 0, "owned_by": "huxley", "permission": []},
-            {"id": "beta", "object": "model", "created": 0, "owned_by": "huxley", "permission": []},
+            {"id": "gemma-4-e4b", "object": "model", "created": 0, "owned_by": "huxley-alpha", "permission": [], "root": "gemma-4-e4b", "parent": None},
+            {"id": "alpha", "object": "model", "created": 0, "owned_by": "huxley-alpha", "permission": [], "root": "gemma-4-e4b", "parent": "gemma-4-e4b"},
+            {"id": "ternary-bonsai-8b", "object": "model", "created": 0, "owned_by": "huxley-beta", "permission": [], "root": "ternary-bonsai-8b", "parent": None},
+            {"id": "beta", "object": "model", "created": 0, "owned_by": "huxley-beta", "permission": [], "root": "ternary-bonsai-8b", "parent": "ternary-bonsai-8b"},
         ]
 
     def openai_chat_completion(
@@ -27,6 +29,7 @@ class _FakeScheduler:
         messages: list[dict],
         max_tokens: int | None = None,
         temperature: float = 0.0,
+        request_options: dict | None = None,
     ) -> dict:
         self.calls.append(
             {
@@ -34,6 +37,7 @@ class _FakeScheduler:
                 "messages": messages,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
+                "request_options": request_options,
             }
         )
         return {
@@ -57,6 +61,7 @@ class _FakeScheduler:
         messages: list[dict],
         max_tokens: int | None = None,
         temperature: float = 0.0,
+        request_options: dict | None = None,
     ):
         self.stream_calls.append(
             {
@@ -64,6 +69,7 @@ class _FakeScheduler:
                 "messages": messages,
                 "max_tokens": max_tokens,
                 "temperature": temperature,
+                "request_options": request_options,
             }
         )
         yield {
@@ -104,7 +110,8 @@ class OpenAIAPITests(unittest.TestCase):
             payload = json.loads(resp.read())
 
         self.assertEqual(payload["object"], "list")
-        self.assertEqual([item["id"] for item in payload["data"]], ["alpha", "beta"])
+        model_ids = [item["id"] for item in payload["data"]]
+        self.assertEqual(model_ids, ["gemma-4-e4b", "alpha", "ternary-bonsai-8b", "beta"])
 
     def test_chat_completions_route_forwards_request_shape(self):
         req = urllib.request.Request(
@@ -129,6 +136,59 @@ class OpenAIAPITests(unittest.TestCase):
         self.assertEqual(self.fake_scheduler.calls[0]["messages"][0]["content"], "hello")
         self.assertEqual(self.fake_scheduler.calls[0]["max_tokens"], 64)
         self.assertEqual(self.fake_scheduler.calls[0]["temperature"], 0.25)
+        self.assertEqual(self.fake_scheduler.calls[0]["request_options"], {})
+
+    def test_models_route_disabled_returns_openai_style_404(self):
+        with unittest.mock.patch.object(
+            daemon_server,
+            "load_config",
+            return_value={"api": {"enabled": False, "localhost_only": True}},
+        ):
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                urllib.request.urlopen(f"{self.base_url}/v1/models", timeout=5)
+
+        self.assertEqual(ctx.exception.code, 404)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(payload["error"]["message"], "not found")
+        self.assertEqual(payload["error"]["type"], "not_found_error")
+
+    def test_chat_completions_forwards_tools_and_tool_choice(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "gemma-4-e4b",
+                    "messages": [{"role": "user", "content": "use the ping tool"}],
+                    "tools": [
+                        {
+                            "type": "function",
+                            "function": {
+                                "name": "ping",
+                                "description": "ping tool",
+                                "parameters": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {"type": "string"}
+                                    },
+                                    "required": ["message"],
+                                },
+                            },
+                        }
+                    ],
+                    "tool_choice": "auto",
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read())
+
+        self.assertEqual(payload["model"], "gemma-4-e4b")
+        self.assertEqual(len(self.fake_scheduler.calls), 1)
+        opts = self.fake_scheduler.calls[0]["request_options"]
+        self.assertEqual(opts["tool_choice"], "auto")
+        self.assertEqual(opts["tools"][0]["function"]["name"], "ping")
 
     def test_chat_completions_rejects_streaming(self):
         req = urllib.request.Request(
@@ -150,6 +210,78 @@ class OpenAIAPITests(unittest.TestCase):
         self.assertIn("data: [DONE]", payload)
         self.assertEqual(len(self.fake_scheduler.stream_calls), 1)
         self.assertEqual(self.fake_scheduler.stream_calls[0]["model"], "alpha")
+        self.assertEqual(self.fake_scheduler.stream_calls[0]["request_options"], {})
+
+    def test_chat_completions_rejects_invalid_json(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=b"{",
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 400)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(payload["error"]["message"], "invalid JSON body")
+
+    def test_chat_completions_rejects_invalid_ranges(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "max_tokens": 0,
+                    "temperature": -0.25,
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 400)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(payload["error"]["message"], "max_tokens must be greater than 0")
+
+    def test_chat_completions_hides_internal_errors(self):
+        def boom(**_kwargs):
+            raise Exception("secret/path should not leak")
+
+        self.fake_scheduler.openai_chat_completion = boom
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "messages": [{"role": "user", "content": "hello"}],
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 500)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(payload["error"]["message"], "internal server error")
+        self.assertEqual(payload["error"]["type"], "server_error")
+
+    def test_openai_routes_do_not_allow_cross_origin_reads_from_remote_origins(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/models",
+            headers={"Origin": "https://example.com"},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read())
+
+        self.assertEqual(payload["object"], "list")
+        self.assertIsNone(resp.headers.get("Access-Control-Allow-Origin"))
 
 
 if __name__ == "__main__":

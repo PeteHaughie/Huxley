@@ -18,6 +18,7 @@ class Router:
             Caste.BETA: self._beta,
             Caste.ALPHA: self._alpha,
         }
+        self._api_cfg = dict(load_config().get("api", {}))
 
     def dispatch(self, msg: Message) -> Message:
         handler = self._routes.get(msg.caste)
@@ -37,21 +38,26 @@ class Router:
         return handler.health()
 
     def openai_models(self) -> list[dict]:
-        cfg = load_config().get("api", {})
-        models = [
-            cfg.get("alpha_model_id", "alpha"),
-            cfg.get("beta_model_id", "beta"),
-        ]
-        return [
-            {
-                "id": model_id,
-                "object": "model",
-                "created": 0,
-                "owned_by": "huxley",
-                "permission": [],
-            }
-            for model_id in models
-        ]
+        registry = self._openai_model_registry()
+        seen = set()
+        models = []
+        for item in registry:
+            model_id = str(item["id"]).strip()
+            if not model_id or model_id in seen:
+                continue
+            seen.add(model_id)
+            models.append(
+                {
+                    "id": model_id,
+                    "object": "model",
+                    "created": 0,
+                    "owned_by": item["owned_by"],
+                    "permission": [],
+                    "root": item["root"],
+                    "parent": item.get("parent"),
+                }
+            )
+        return models
 
     def openai_chat_completion(
         self,
@@ -59,12 +65,18 @@ class Router:
         messages: list[dict],
         max_tokens: int | None = None,
         temperature: float = 0.0,
+        request_options: dict | None = None,
     ) -> dict:
         canonical_model, handler = self._resolve_openai_model(model)
         max_output = max_tokens if max_tokens is not None else 512
         created = int(time.time())
         if handler is self._alpha:
-            response = self._alpha.complete_chat(messages, max_output, temperature=temperature)
+            response = self._alpha.complete_chat(
+                messages,
+                max_output,
+                temperature=temperature,
+                request_options=request_options,
+            )
             if isinstance(response, dict):
                 response["model"] = canonical_model
                 response.setdefault("object", "chat.completion")
@@ -72,6 +84,10 @@ class Router:
                 response.setdefault("id", f"chatcmpl-{created}")
                 return response
         else:
+            if request_options and any(
+                key in request_options for key in ("tools", "tool_choice", "functions", "function_call")
+            ):
+                raise RuntimeError("tool calling is not supported for beta via the OpenAI-compatible API")
             content = self._beta.complete_chat(messages, max_output, temperature=temperature)
             response = {
                 "id": f"chatcmpl-{created}",
@@ -100,6 +116,7 @@ class Router:
         messages: list[dict],
         max_tokens: int | None = None,
         temperature: float = 0.0,
+        request_options: dict | None = None,
     ) -> Iterator[dict]:
         canonical_model, handler = self._resolve_openai_model(model)
         max_output = max_tokens if max_tokens is not None else 512
@@ -107,10 +124,19 @@ class Router:
         completion_id = f"chatcmpl-{created}"
 
         if handler is self._alpha:
-            for chunk in self._alpha.stream_chat(messages, max_output, temperature=temperature):
+            for chunk in self._alpha.stream_chat(
+                messages,
+                max_output,
+                temperature=temperature,
+                request_options=request_options,
+            ):
                 yield self._normalize_alpha_stream_chunk(chunk, canonical_model, created, completion_id)
             return
 
+        if request_options and any(
+            key in request_options for key in ("tools", "tool_choice", "functions", "function_call")
+        ):
+            raise RuntimeError("tool calling is not supported for beta via the OpenAI-compatible API")
         for item in self._beta.stream_chat(messages, max_output, temperature=temperature):
             yield {
                 "id": completion_id,
@@ -148,18 +174,77 @@ class Router:
         return normalized
 
     def _resolve_openai_model(self, model: str) -> tuple[str, object]:
-        cfg = load_config().get("api", {})
-        alpha_model_id = str(cfg.get("alpha_model_id", "alpha"))
-        beta_model_id = str(cfg.get("beta_model_id", "beta"))
         alias_map = {
-            alpha_model_id.lower(): (alpha_model_id, self._alpha),
-            "alpha": (alpha_model_id, self._alpha),
-            "gemma-4-e4b": (alpha_model_id, self._alpha),
-            beta_model_id.lower(): (beta_model_id, self._beta),
-            "beta": (beta_model_id, self._beta),
-            "ternary-bonsai-8b": (beta_model_id, self._beta),
+            item["id"].strip().lower(): (item["id"], item["handler"])
+            for item in self._openai_model_registry()
         }
         resolved = alias_map.get(str(model).strip().lower())
         if resolved is None:
             raise ValueError(f"unknown model: {model}")
         return resolved
+
+    def _openai_model_registry(self) -> list[dict]:
+        alpha_backend = "gemma-4-e4b"
+        beta_backend = "ternary-bonsai-8b"
+        registry = [
+            {
+                "id": alpha_backend,
+                "root": alpha_backend,
+                "parent": None,
+                "owned_by": "huxley-alpha",
+                "handler": self._alpha,
+            },
+            {
+                "id": "alpha",
+                "root": alpha_backend,
+                "parent": alpha_backend,
+                "owned_by": "huxley-alpha",
+                "handler": self._alpha,
+            },
+            {
+                "id": beta_backend,
+                "root": beta_backend,
+                "parent": None,
+                "owned_by": "huxley-beta",
+                "handler": self._beta,
+            },
+            {
+                "id": "beta",
+                "root": beta_backend,
+                "parent": beta_backend,
+                "owned_by": "huxley-beta",
+                "handler": self._beta,
+            },
+        ]
+        alpha_alias = self._configured_openai_alias("alpha_model_id")
+        if alpha_alias is not None:
+            registry.insert(
+                1,
+                {
+                    "id": alpha_alias,
+                    "root": alpha_backend,
+                    "parent": alpha_backend,
+                    "owned_by": "huxley-alpha",
+                    "handler": self._alpha,
+                },
+            )
+        beta_alias = self._configured_openai_alias("beta_model_id")
+        if beta_alias is not None:
+            registry.insert(
+                len(registry) - 1,
+                {
+                    "id": beta_alias,
+                    "root": beta_backend,
+                    "parent": beta_backend,
+                    "owned_by": "huxley-beta",
+                    "handler": self._beta,
+                },
+            )
+        return registry
+
+    def _configured_openai_alias(self, key: str) -> str | None:
+        raw_value = self._api_cfg.get(key)
+        if raw_value is None:
+            return None
+        alias = str(raw_value).strip()
+        return alias or None
