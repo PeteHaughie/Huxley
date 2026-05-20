@@ -1,4 +1,5 @@
 import json
+import math
 import os
 import threading
 import http.server
@@ -16,6 +17,14 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
     def log_message(self, fmt, *args):
         pass
 
+    def _apply_cors_headers(self, path: str | None = None):
+        allow_origin = self._cors_origin(path)
+        if not allow_origin:
+            return
+        self.send_header("Access-Control-Allow-Origin", allow_origin)
+        if allow_origin != "*":
+            self.send_header("Vary", "Origin")
+
     def _send(self, data, status=200, ctype="application/json"):
         if isinstance(data, str):
             data = data.encode()
@@ -23,7 +32,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             data = json.dumps(data).encode()
         self.send_response(status)
         self.send_header("Content-Type", ctype)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._apply_cors_headers()
         self.send_header("Content-Length", str(len(data)))
         self.end_headers()
         self.wfile.write(data)
@@ -36,15 +45,15 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         return parsed.path.rstrip("/") or "/", urllib.parse.parse_qs(parsed.query)
 
-    def _send_error_json(self, status: int, message: str):
-        self._send({"error": {"message": message, "type": "invalid_request_error"}}, status=status)
+    def _send_error_json(self, status: int, message: str, error_type: str = "invalid_request_error"):
+        self._send({"error": {"message": message, "type": error_type}}, status=status)
 
     def _begin_sse(self):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._apply_cors_headers()
         self.end_headers()
 
     def _write_sse_event(self, payload: dict | str):
@@ -55,15 +64,39 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(f"data: {data}\n\n".encode())
         self.wfile.flush()
 
+    def _api_config(self) -> dict:
+        cached = getattr(self, "_cached_api_cfg", None)
+        if cached is None:
+            cached = load_config().get("api", {})
+            self._cached_api_cfg = cached
+        return cached
+
     def _api_enabled(self) -> bool:
-        return load_config().get("api", {}).get("enabled", True)
+        return self._api_config().get("enabled", True)
 
     def _localhost_only(self) -> bool:
-        return load_config().get("api", {}).get("localhost_only", True)
+        return self._api_config().get("localhost_only", True)
+
+    def _is_openai_route(self, path: str) -> bool:
+        return path in {"/v1/models", "/v1/chat/completions"}
+
+    def _is_loopback_host(self, host: str | None) -> bool:
+        return (host or "").strip().lower() in {"127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"}
 
     def _is_loopback_client(self) -> bool:
-        host = (self.client_address[0] or "").strip()
-        return host in {"127.0.0.1", "::1", "::ffff:127.0.0.1"}
+        return self._is_loopback_host(self.client_address[0])
+
+    def _is_loopback_origin(self, origin: str) -> bool:
+        return self._is_loopback_host(urllib.parse.urlparse(origin).hostname)
+
+    def _cors_origin(self, path: str | None = None) -> str | None:
+        route = path or self._path_parts()[0]
+        if not self._is_openai_route(route):
+            return "*"
+        origin = self.headers.get("Origin", "").strip()
+        if origin and self._is_loopback_origin(origin):
+            return origin
+        return None
 
     def do_GET(self):
         path, qs = self._path_parts()
@@ -71,7 +104,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             self._send({"status": "ok", "scheduler_running": _scheduler.running})
         elif path == "/v1/models":
             if not self._api_enabled():
-                self._send({"error": "not found"}, 404)
+                self._send_error_json(404, "not found", error_type="not_found_error")
                 return
             if self._localhost_only() and not self._is_loopback_client():
                 self._send_error_json(403, "OpenAI-compatible API is restricted to localhost")
@@ -139,12 +172,19 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         path, _ = self._path_parts()
         if path == "/v1/chat/completions":
             if not self._api_enabled():
-                self._send({"error": "not found"}, 404)
+                self._send_error_json(404, "not found", error_type="not_found_error")
                 return
             if self._localhost_only() and not self._is_loopback_client():
                 self._send_error_json(403, "OpenAI-compatible API is restricted to localhost")
                 return
-            body = self._read_body()
+            try:
+                body = self._read_body()
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._send_error_json(400, "invalid JSON body")
+                return
+            if not isinstance(body, dict):
+                self._send_error_json(400, "JSON body must be an object")
+                return
             model = body.get("model")
             if not model:
                 self._send_error_json(400, "model is required")
@@ -160,11 +200,22 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 except (TypeError, ValueError):
                     self._send_error_json(400, "max_tokens must be an integer")
                     return
+                if max_tokens <= 0:
+                    self._send_error_json(400, "max_tokens must be greater than 0")
+                    return
             try:
                 temperature = float(body.get("temperature", 0.0))
             except (TypeError, ValueError):
                 self._send_error_json(400, "temperature must be numeric")
                 return
+            if not math.isfinite(temperature) or temperature < 0:
+                self._send_error_json(400, "temperature must be finite and non-negative")
+                return
+            request_options = {
+                key: body[key]
+                for key in ("tools", "tool_choice", "functions", "function_call", "response_format")
+                if key in body
+            }
             if body.get("stream"):
                 try:
                     self._begin_sse()
@@ -173,15 +224,17 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                         messages=messages,
                         max_tokens=max_tokens,
                         temperature=temperature,
+                        request_options=request_options,
                     ):
                         self._write_sse_event(chunk)
                     self._write_sse_event("[DONE]")
                 except (BrokenPipeError, ConnectionResetError):
                     return
                 except Exception as e:
+                    print(f"γ|huxleyd|openai_stream_err|{e}", flush=True)
                     try:
                         self._write_sse_event(
-                            {"error": {"message": str(e), "type": "invalid_request_error"}}
+                            {"error": {"message": "internal server error", "type": "server_error"}}
                         )
                     except (BrokenPipeError, ConnectionResetError):
                         pass
@@ -192,6 +245,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                     messages=messages,
                     max_tokens=max_tokens,
                     temperature=temperature,
+                    request_options=request_options,
                 )
             except ValueError as e:
                 self._send_error_json(404, str(e))
@@ -200,7 +254,8 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 self._send_error_json(503, str(e))
                 return
             except Exception as e:
-                self._send_error_json(500, str(e))
+                print(f"γ|huxleyd|openai_err|{e}", flush=True)
+                self._send_error_json(500, "internal server error", error_type="server_error")
                 return
             self._send(response)
         elif path == "/v1/schedules":
@@ -247,8 +302,9 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             self._send({"error": "not found"}, 404)
 
     def do_OPTIONS(self):
+        path, _ = self._path_parts()
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        self._apply_cors_headers(path)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
