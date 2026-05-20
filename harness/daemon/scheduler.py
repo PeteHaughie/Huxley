@@ -315,14 +315,17 @@ class SchedulerEngine:
         temperature: float = 0.0,
         request_options: dict | None = None,
     ):
-        with self._inference_lock:
-            return self._get_router().openai_chat_completion_stream(
-                model=model,
-                messages=messages,
-                max_tokens=max_tokens,
-                temperature=temperature,
-                request_options=request_options,
-            )
+        def stream():
+            with self._inference_lock:
+                yield from self._get_router().openai_chat_completion_stream(
+                    model=model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    request_options=request_options,
+                )
+
+        return stream()
 
     def execute_task(self, title: str, prompt: str) -> dict:
         triage_result = self._infer(prompt or title, Level.TASK.value)
