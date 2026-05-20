@@ -3,7 +3,9 @@ import types
 import unittest
 from unittest.mock import MagicMock, patch
 
-if "httpx" not in sys.modules:
+try:
+    import httpx  # noqa: F401
+except ImportError:
     fake_httpx = types.ModuleType("httpx")
     fake_httpx.Client = object
     sys.modules["httpx"] = fake_httpx
