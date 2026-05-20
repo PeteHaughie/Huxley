@@ -80,7 +80,7 @@ class OpenAICompatibleClient:
                         continue
                     if payload == "[DONE]":
                         yield payload
-                        continue
+                        break
                     yield json.loads(payload)
 
     def _normalized_request_options(self, request_options: Optional[dict]) -> dict:
