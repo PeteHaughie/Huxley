@@ -4,8 +4,10 @@ import os
 import threading
 import http.server
 import urllib.parse
+from collections.abc import Iterator
 from harness.daemon.scheduler import SchedulerEngine, Schedule, _ensure_scheduler_dir, _peer_table
 from harness.board import JobBoard, State
+from harness.comms.router import OpenAIRequestError
 from harness.config import load_config
 
 DAEMON_PORT = int(os.environ.get("HUXLEYD_PORT", "8083"))
@@ -221,20 +223,50 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 for key in ("tools", "tool_choice", "functions", "function_call", "response_format")
                 if key in body
             }
-            if body.get("stream"):
+            stream = body.get("stream", False)
+            if not isinstance(stream, bool):
+                self._send_error_json(400, "stream must be a boolean")
+                return
+            if stream:
+                stream_iter: Iterator[dict] = _scheduler.openai_chat_completion_stream(
+                    model=model,
+                    messages=messages,
+                    max_tokens=max_tokens,
+                    temperature=temperature,
+                    request_options=request_options,
+                )
+                try:
+                    first_chunk = next(stream_iter)
+                except (BrokenPipeError, ConnectionResetError):
+                    return
+                except OpenAIRequestError as e:
+                    self._send_error_json(e.status, str(e), error_type=e.error_type)
+                    return
+                except ValueError as e:
+                    self._send_error_json(404, str(e), error_type="not_found_error")
+                    return
+                except RuntimeError as e:
+                    self._send_error_json(503, str(e))
+                    return
+                except Exception as e:
+                    print(f"γ|huxleyd|openai_stream_err|{e}", flush=True)
+                    self._send_error_json(500, "internal server error", error_type="server_error")
+                    return
                 try:
                     self._begin_sse()
-                    for chunk in _scheduler.openai_chat_completion_stream(
-                        model=model,
-                        messages=messages,
-                        max_tokens=max_tokens,
-                        temperature=temperature,
-                        request_options=request_options,
-                    ):
+                    self._write_sse_event(first_chunk)
+                    for chunk in stream_iter:
                         self._write_sse_event(chunk)
+                    self._write_sse_event("[DONE]")
+                except StopIteration:
                     self._write_sse_event("[DONE]")
                 except (BrokenPipeError, ConnectionResetError):
                     return
+                except OpenAIRequestError as e:
+                    try:
+                        self._write_sse_event({"error": {"message": str(e), "type": e.error_type}})
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
                 except Exception as e:
                     print(f"γ|huxleyd|openai_stream_err|{e}", flush=True)
                     try:
@@ -252,8 +284,11 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                     temperature=temperature,
                     request_options=request_options,
                 )
+            except OpenAIRequestError as e:
+                self._send_error_json(e.status, str(e), error_type=e.error_type)
+                return
             except ValueError as e:
-                self._send_error_json(404, str(e))
+                self._send_error_json(404, str(e), error_type="not_found_error")
                 return
             except RuntimeError as e:
                 self._send_error_json(503, str(e))

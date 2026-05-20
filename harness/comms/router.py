@@ -5,6 +5,13 @@ from harness.comms.message import Message, Caste, Action
 from harness.config import load_config
 
 
+class OpenAIRequestError(Exception):
+    def __init__(self, message: str, status: int = 400, error_type: str = "invalid_request_error"):
+        super().__init__(message)
+        self.status = status
+        self.error_type = error_type
+
+
 class Router:
     def __init__(self):
         from harness.caste.gamma import Gamma
@@ -87,7 +94,7 @@ class Router:
             if request_options and any(
                 key in request_options for key in ("tools", "tool_choice", "functions", "function_call")
             ):
-                raise RuntimeError("tool calling is not supported for beta via the OpenAI-compatible API")
+                raise OpenAIRequestError("tool calling is not supported for beta via the OpenAI-compatible API")
             content = self._beta.complete_chat(messages, max_output, temperature=temperature)
             response = {
                 "id": f"chatcmpl-{created}",
@@ -136,7 +143,7 @@ class Router:
         if request_options and any(
             key in request_options for key in ("tools", "tool_choice", "functions", "function_call")
         ):
-            raise RuntimeError("tool calling is not supported for beta via the OpenAI-compatible API")
+            raise OpenAIRequestError("tool calling is not supported for beta via the OpenAI-compatible API")
         for item in self._beta.stream_chat(messages, max_output, temperature=temperature):
             yield {
                 "id": completion_id,

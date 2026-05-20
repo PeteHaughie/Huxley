@@ -247,6 +247,27 @@ class OpenAIAPITests(unittest.TestCase):
         payload = json.loads(ctx.exception.read())
         self.assertEqual(payload["error"]["message"], "max_tokens must be greater than 0")
 
+    def test_chat_completions_rejects_non_boolean_stream(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "stream": "false",
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 400)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(payload["error"]["message"], "stream must be a boolean")
+        self.assertEqual(self.fake_scheduler.stream_calls, [])
+
     def test_chat_completions_hides_internal_errors(self):
         def boom(**_kwargs):
             raise Exception("secret/path should not leak")
@@ -270,6 +291,58 @@ class OpenAIAPITests(unittest.TestCase):
         payload = json.loads(ctx.exception.read())
         self.assertEqual(payload["error"]["message"], "internal server error")
         self.assertEqual(payload["error"]["type"], "server_error")
+
+    def test_chat_completions_unknown_model_returns_not_found_error(self):
+        def unknown_model(**_kwargs):
+            raise ValueError("unknown model: nope")
+
+        self.fake_scheduler.openai_chat_completion = unknown_model
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "nope",
+                    "messages": [{"role": "user", "content": "hello"}],
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 404)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(payload["error"]["message"], "unknown model: nope")
+        self.assertEqual(payload["error"]["type"], "not_found_error")
+
+    def test_chat_completions_request_errors_return_400(self):
+        def invalid_request(**_kwargs):
+            raise daemon_server.OpenAIRequestError("tool calling is not supported for beta via the OpenAI-compatible API")
+
+        self.fake_scheduler.openai_chat_completion = invalid_request
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "beta",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "tools": [{"type": "function", "function": {"name": "ping"}}],
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 400)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(
+            payload["error"]["message"],
+            "tool calling is not supported for beta via the OpenAI-compatible API",
+        )
+        self.assertEqual(payload["error"]["type"], "invalid_request_error")
 
     def test_openai_routes_do_not_allow_cross_origin_reads_from_remote_origins(self):
         req = urllib.request.Request(

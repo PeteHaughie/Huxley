@@ -240,7 +240,7 @@ Current compatibility scope:
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - both JSON and `stream=true` SSE responses
-- exposed model IDs: `alpha`, `beta`
+- exposed model IDs: backend IDs (`gemma-4-e4b`, `ternary-bonsai-8b`) plus aliases such as `alpha` and `beta`
 - terminal streaming marker: `data: [DONE]`
 
 Live smoke test against a running daemon:
