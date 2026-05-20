@@ -288,7 +288,8 @@ class SchedulerEngine:
         return self._router
 
     def openai_models(self) -> list[dict]:
-        return self._get_router().openai_models()
+        with self._inference_lock:
+            return self._get_router().openai_models()
 
     def openai_chat_completion(
         self,
