@@ -224,7 +224,7 @@ class Router:
             },
         ]
         alpha_alias = self._configured_openai_alias("alpha_model_id")
-        if alpha_alias is not None:
+        if alpha_alias is not None and not self._has_model_id(registry, alpha_alias):
             registry.insert(
                 1,
                 {
@@ -236,7 +236,7 @@ class Router:
                 },
             )
         beta_alias = self._configured_openai_alias("beta_model_id")
-        if beta_alias is not None:
+        if beta_alias is not None and not self._has_model_id(registry, beta_alias):
             registry.insert(
                 len(registry) - 1,
                 {
@@ -255,3 +255,7 @@ class Router:
             return None
         alias = str(raw_value).strip()
         return alias or None
+
+    def _has_model_id(self, registry: list[dict], model_id: str) -> bool:
+        target = model_id.strip().lower()
+        return any(str(item.get("id", "")).strip().lower() == target for item in registry)

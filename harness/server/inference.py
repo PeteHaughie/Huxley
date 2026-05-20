@@ -19,11 +19,12 @@ class OpenAICompatibleClient:
         stream: bool = False,
         request_options: Optional[dict] = None,
     ) -> dict:
+        if stream:
+            raise ValueError("streaming responses are not supported by chat(); use stream_chat()")
         body = {
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "stream": stream,
         }
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
