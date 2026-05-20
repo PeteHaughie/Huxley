@@ -209,7 +209,7 @@ huxley daemon start
 
 # Check the API endpoint and exposed models
 huxley daemon status
-# γ|huxleyd|running|...|openai=http://127.0.0.1:8083/v1|models=alpha,beta
+# γ|huxleyd|running|...|openai=http://127.0.0.1:8083/v1|models=gemma-4-e4b,alpha,ternary-bonsai-8b,beta
 
 # List exposed models
 curl http://127.0.0.1:8083/v1/models

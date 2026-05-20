@@ -212,6 +212,29 @@ class OpenAIAPITests(unittest.TestCase):
         self.assertEqual(self.fake_scheduler.stream_calls[0]["model"], "alpha")
         self.assertEqual(self.fake_scheduler.stream_calls[0]["request_options"], {})
 
+    def test_chat_completions_streaming_empty_stream_returns_done(self):
+        def empty_stream(**_kwargs):
+            if False:
+                yield {}
+
+        self.fake_scheduler.openai_chat_completion_stream = empty_stream
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "stream": True,
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = resp.read().decode()
+
+        self.assertEqual(payload.strip(), "data: [DONE]")
+
     def test_chat_completions_rejects_invalid_json(self):
         req = urllib.request.Request(
             f"{self.base_url}/v1/chat/completions",
@@ -354,6 +377,18 @@ class OpenAIAPITests(unittest.TestCase):
             payload = json.loads(resp.read())
 
         self.assertEqual(payload["object"], "list")
+        self.assertIsNone(resp.headers.get("Access-Control-Allow-Origin"))
+
+    def test_non_openai_routes_do_not_allow_cross_origin_reads_from_remote_origins(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/health",
+            headers={"Origin": "https://example.com"},
+            method="GET",
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            payload = json.loads(resp.read())
+
+        self.assertEqual(payload["status"], "ok")
         self.assertIsNone(resp.headers.get("Access-Control-Allow-Origin"))
 
 

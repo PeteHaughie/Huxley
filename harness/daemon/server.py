@@ -92,9 +92,6 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         return self._is_loopback_host(urllib.parse.urlparse(origin).hostname)
 
     def _cors_origin(self, path: str | None = None) -> str | None:
-        route = path or self._path_parts()[0]
-        if not self._is_openai_route(route):
-            return "*"
         origin = self.headers.get("Origin", "").strip()
         if not origin or "\r" in origin or "\n" in origin:
             return None
@@ -237,6 +234,13 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 )
                 try:
                     first_chunk = next(stream_iter)
+                except StopIteration:
+                    try:
+                        self._begin_sse()
+                        self._write_sse_event("[DONE]")
+                    except (BrokenPipeError, ConnectionResetError):
+                        pass
+                    return
                 except (BrokenPipeError, ConnectionResetError):
                     return
                 except OpenAIRequestError as e:
