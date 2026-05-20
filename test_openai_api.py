@@ -190,7 +190,7 @@ class OpenAIAPITests(unittest.TestCase):
         self.assertEqual(opts["tool_choice"], "auto")
         self.assertEqual(opts["tools"][0]["function"]["name"], "ping")
 
-    def test_chat_completions_rejects_streaming(self):
+    def test_chat_completions_supports_streaming(self):
         req = urllib.request.Request(
             f"{self.base_url}/v1/chat/completions",
             data=json.dumps(

@@ -156,12 +156,19 @@ class Alpha(CasteBase):
         self.stop_server()
         return self.start_server()
 
-    def _chat_with_recovery(self, messages: list[dict], max_tokens: int, temperature: float = 0.1) -> dict:
+    def _chat_with_recovery(
+        self,
+        messages: list[dict],
+        max_tokens: int,
+        temperature: float = 0.1,
+        request_options: dict | None = None,
+    ) -> dict:
         try:
             return self.client().chat(
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                request_options=request_options,
             )
         except Exception as e:
             if not self._should_restart_for_error(e):
@@ -173,18 +180,32 @@ class Alpha(CasteBase):
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                request_options=request_options,
             )
 
-    def complete_chat(self, messages: list[dict], max_tokens: int, temperature: float = 0.1) -> dict:
+    def complete_chat(
+        self,
+        messages: list[dict],
+        max_tokens: int,
+        temperature: float = 0.1,
+        request_options: dict | None = None,
+    ) -> dict:
         if not self.start_server():
             raise RuntimeError(f"alpha server unavailable on port {ALPHA_PORT} — install llama.cpp or check config")
         return self._chat_with_recovery(
             messages=messages,
             max_tokens=max_tokens,
             temperature=temperature,
+            request_options=request_options,
         )
 
-    def stream_chat(self, messages: list[dict], max_tokens: int, temperature: float = 0.1) -> Iterator[dict]:
+    def stream_chat(
+        self,
+        messages: list[dict],
+        max_tokens: int,
+        temperature: float = 0.1,
+        request_options: dict | None = None,
+    ) -> Iterator[dict]:
         if not self.start_server():
             raise RuntimeError(f"alpha server unavailable on port {ALPHA_PORT} — install llama.cpp or check config")
         try:
@@ -192,6 +213,7 @@ class Alpha(CasteBase):
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                request_options=request_options,
             ):
                 if event == "[DONE]":
                     break
@@ -207,6 +229,7 @@ class Alpha(CasteBase):
                 messages=messages,
                 max_tokens=max_tokens,
                 temperature=temperature,
+                request_options=request_options,
             ):
                 if event == "[DONE]":
                     break

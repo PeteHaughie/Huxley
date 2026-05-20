@@ -17,6 +17,7 @@ class OpenAICompatibleClient:
         max_tokens: Optional[int] = None,
         temperature: float = 0.0,
         stream: bool = False,
+        request_options: Optional[dict] = None,
     ) -> dict:
         body = {
             "model": self.model,
@@ -26,6 +27,7 @@ class OpenAICompatibleClient:
         }
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
+        body.update(self._normalized_request_options(request_options))
 
         with httpx.Client(timeout=self.timeout) as client:
             resp = client.post(
@@ -49,6 +51,7 @@ class OpenAICompatibleClient:
         messages: list[dict],
         max_tokens: Optional[int] = None,
         temperature: float = 0.0,
+        request_options: Optional[dict] = None,
     ) -> Iterator[dict | str]:
         body = {
             "model": self.model,
@@ -58,6 +61,7 @@ class OpenAICompatibleClient:
         }
         if max_tokens is not None:
             body["max_tokens"] = max_tokens
+        body.update(self._normalized_request_options(request_options))
 
         with httpx.Client(timeout=self.timeout) as client:
             with client.stream(
@@ -78,3 +82,12 @@ class OpenAICompatibleClient:
                         yield payload
                         continue
                     yield json.loads(payload)
+
+    def _normalized_request_options(self, request_options: Optional[dict]) -> dict:
+        if not request_options:
+            return {}
+        return {
+            key: request_options[key]
+            for key in ("tools", "tool_choice", "functions", "function_call", "response_format")
+            if key in request_options
+        }

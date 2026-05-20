@@ -94,8 +94,13 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         if not self._is_openai_route(route):
             return "*"
         origin = self.headers.get("Origin", "").strip()
-        if origin and self._is_loopback_origin(origin):
-            return origin
+        if not origin or "\r" in origin or "\n" in origin:
+            return None
+        parsed = urllib.parse.urlparse(origin)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            return None
+        if self._is_loopback_host(parsed.hostname):
+            return "*"
         return None
 
     def do_GET(self):
@@ -306,7 +311,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         self.send_response(204)
         self._apply_cors_headers(path)
         self.send_header("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
 
 
@@ -314,7 +319,7 @@ def run_daemon(port: int = DAEMON_PORT):
     _ensure_scheduler_dir()
     _scheduler.start()
     addr = ("0.0.0.0", port)
-    server = http.server.ThreadingHTTPServer(addr, DaemonHandler)
+    server = http.server.HTTPServer(addr, DaemonHandler)
     print(f"γ|huxleyd|listen|http://0.0.0.0:{port}", flush=True)
     try:
         server.serve_forever()
