@@ -91,7 +91,8 @@ class Router:
                 response.setdefault("created", created)
                 response.setdefault("id", f"chatcmpl-{created}")
                 return response
-        else:
+            raise RuntimeError("invalid response from alpha model backend")
+        if handler is self._beta:
             if request_options and any(
                 key in request_options for key in ("tools", "tool_choice", "functions", "function_call")
             ):
@@ -116,7 +117,7 @@ class Router:
                 },
             }
             return response
-        raise RuntimeError("invalid response from model backend")
+        raise RuntimeError("invalid model backend")
 
     def openai_chat_completion_stream(
         self,

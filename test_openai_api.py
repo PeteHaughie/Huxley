@@ -429,6 +429,27 @@ class OpenAIAPITests(unittest.TestCase):
         self.assertEqual(payload["error"]["message"], "max_tokens must be an integer")
         self.assertEqual(self.fake_scheduler.calls, [])
 
+    def test_chat_completions_rejects_float_max_tokens(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "max_tokens": 1.9,
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 400)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(payload["error"]["message"], "max_tokens must be an integer")
+        self.assertEqual(self.fake_scheduler.calls, [])
+
     def test_chat_completions_rejects_boolean_temperature(self):
         req = urllib.request.Request(
             f"{self.base_url}/v1/chat/completions",
