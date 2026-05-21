@@ -224,9 +224,15 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 if isinstance(max_tokens, bool):
                     self._send_error_json(400, "max_tokens must be an integer")
                     return
-                try:
-                    max_tokens = int(max_tokens)
-                except (TypeError, ValueError):
+                if isinstance(max_tokens, int):
+                    pass
+                elif isinstance(max_tokens, str):
+                    stripped = max_tokens.strip()
+                    if not stripped or not stripped.lstrip("+-").isdigit():
+                        self._send_error_json(400, "max_tokens must be an integer")
+                        return
+                    max_tokens = int(stripped)
+                else:
                     self._send_error_json(400, "max_tokens must be an integer")
                     return
                 if max_tokens <= 0:
