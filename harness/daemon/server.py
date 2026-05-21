@@ -264,7 +264,8 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                     self._send_error_json(404, str(e), error_type="not_found_error")
                     return
                 except RuntimeError as e:
-                    self._send_error_json(503, str(e))
+                    print(f"γ|huxleyd|openai_stream_err|{e}", flush=True)
+                    self._send_error_json(503, "service temporarily unavailable", error_type="server_error")
                     return
                 except Exception as e:
                     print(f"γ|huxleyd|openai_stream_err|{e}", flush=True)
@@ -313,7 +314,8 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 self._send_error_json(404, str(e), error_type="not_found_error")
                 return
             except RuntimeError as e:
-                self._send_error_json(503, str(e))
+                print(f"γ|huxleyd|openai_err|{e}", flush=True)
+                self._send_error_json(503, "service temporarily unavailable", error_type="server_error")
                 return
             except Exception as e:
                 print(f"γ|huxleyd|openai_err|{e}", flush=True)
