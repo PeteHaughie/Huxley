@@ -408,6 +408,48 @@ class OpenAIAPITests(unittest.TestCase):
         self.assertEqual(payload["error"]["message"], "stream must be a boolean")
         self.assertEqual(self.fake_scheduler.stream_calls, [])
 
+    def test_chat_completions_rejects_boolean_max_tokens(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "max_tokens": True,
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 400)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(payload["error"]["message"], "max_tokens must be an integer")
+        self.assertEqual(self.fake_scheduler.calls, [])
+
+    def test_chat_completions_rejects_boolean_temperature(self):
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "temperature": False,
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(req, timeout=5)
+
+        self.assertEqual(ctx.exception.code, 400)
+        payload = json.loads(ctx.exception.read())
+        self.assertEqual(payload["error"]["message"], "temperature must be numeric")
+        self.assertEqual(self.fake_scheduler.calls, [])
+
     def test_chat_completions_hides_internal_errors(self):
         def boom(**_kwargs):
             raise Exception("secret/path should not leak")
@@ -507,6 +549,20 @@ class OpenAIAPITests(unittest.TestCase):
 
         self.assertEqual(payload["object"], "list")
         self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "*")
+
+    def test_openai_routes_allow_cors_from_noncanonical_loopback_origins(self):
+        for origin in ("http://127.0.0.2:3000", "http://[0:0:0:0:0:0:0:1]:3000"):
+            with self.subTest(origin=origin):
+                req = urllib.request.Request(
+                    f"{self.base_url}/v1/models",
+                    headers={"Origin": origin},
+                    method="GET",
+                )
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    payload = json.loads(resp.read())
+
+                self.assertEqual(payload["object"], "list")
+                self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "*")
 
     def test_non_openai_routes_do_not_allow_cross_origin_reads_from_remote_origins(self):
         req = urllib.request.Request(
