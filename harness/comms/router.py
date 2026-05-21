@@ -142,24 +142,27 @@ class Router:
                 yield self._normalize_alpha_stream_chunk(chunk, canonical_model, created, completion_id)
             return
 
-        if request_options and any(
-            key in request_options for key in ("tools", "tool_choice", "functions", "function_call")
-        ):
-            raise OpenAIRequestError("tool calling is not supported for beta via the OpenAI-compatible API")
-        for item in self._beta.stream_chat(messages, max_output, temperature=temperature):
-            yield {
-                "id": completion_id,
-                "object": "chat.completion.chunk",
-                "created": created,
-                "model": canonical_model,
-                "choices": [
-                    {
-                        "index": 0,
-                        "delta": {"content": item.get("delta", "")} if item.get("delta", "") else {},
-                        "finish_reason": item.get("finish_reason"),
-                    }
-                ],
-            }
+        if handler is self._beta:
+            if request_options and any(
+                key in request_options for key in ("tools", "tool_choice", "functions", "function_call")
+            ):
+                raise OpenAIRequestError("tool calling is not supported for beta via the OpenAI-compatible API")
+            for item in self._beta.stream_chat(messages, max_output, temperature=temperature):
+                yield {
+                    "id": completion_id,
+                    "object": "chat.completion.chunk",
+                    "created": created,
+                    "model": canonical_model,
+                    "choices": [
+                        {
+                            "index": 0,
+                            "delta": {"content": item.get("delta", "")} if item.get("delta", "") else {},
+                            "finish_reason": item.get("finish_reason"),
+                        }
+                    ],
+                }
+            return
+        raise RuntimeError("invalid model backend")
 
     def _normalize_alpha_stream_chunk(self, chunk: dict, model: str, created: int, completion_id: str) -> dict:
         normalized = dict(chunk)
