@@ -118,7 +118,8 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             self._send({"object": "list", "data": _scheduler.openai_models()})
         elif path == "/v1/status":
             schedules = _scheduler.list_schedules()
-            api_cfg = load_config().get("api", {})
+            api_cfg = load_config().get("api")
+            api_cfg = api_cfg if isinstance(api_cfg, dict) else {}
             daemon_url = f"http://127.0.0.1:{self.server.server_port}/v1"
             self._send({
                 "running": True,
@@ -289,6 +290,10 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                         self._write_sse_event("[DONE]")
                     except (BrokenPipeError, ConnectionResetError):
                         pass
+                finally:
+                    close_stream = getattr(stream_iter, "close", None)
+                    if callable(close_stream):
+                        close_stream()
                 return
             try:
                 response = _scheduler.openai_chat_completion(
