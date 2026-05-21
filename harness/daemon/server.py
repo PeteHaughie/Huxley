@@ -3,6 +3,7 @@ import math
 import os
 import threading
 import http.server
+import ipaddress
 import urllib.parse
 from collections.abc import Iterator
 from harness.daemon.scheduler import SchedulerEngine, Schedule, _ensure_scheduler_dir, _peer_table
@@ -82,7 +83,14 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         return path in {"/v1/models", "/v1/chat/completions"}
 
     def _is_loopback_host(self, host: str | None) -> bool:
-        return (host or "").strip().lower() in {"127.0.0.1", "::1", "::ffff:127.0.0.1", "localhost"}
+        host = (host or "").strip().lower()
+        if host == "localhost":
+            return True
+        try:
+            ip = ipaddress.ip_address(host)
+        except ValueError:
+            return False
+        return ip.is_loopback or (getattr(ip, "ipv4_mapped", None) is not None and ip.ipv4_mapped.is_loopback)
 
     def _is_loopback_client(self) -> bool:
         return self._is_loopback_host(self.client_address[0])
@@ -213,6 +221,9 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 return
             max_tokens = body.get("max_tokens")
             if max_tokens is not None:
+                if isinstance(max_tokens, bool):
+                    self._send_error_json(400, "max_tokens must be an integer")
+                    return
                 try:
                     max_tokens = int(max_tokens)
                 except (TypeError, ValueError):
@@ -221,8 +232,12 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 if max_tokens <= 0:
                     self._send_error_json(400, "max_tokens must be greater than 0")
                     return
+            temperature = body.get("temperature", 0.0)
+            if isinstance(temperature, bool):
+                self._send_error_json(400, "temperature must be numeric")
+                return
             try:
-                temperature = float(body.get("temperature", 0.0))
+                temperature = float(temperature)
             except (TypeError, ValueError):
                 self._send_error_json(400, "temperature must be numeric")
                 return
