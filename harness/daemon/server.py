@@ -68,7 +68,8 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
 
     def _api_config(self) -> dict:
         if not hasattr(self, "_req_api_cfg"):
-            self._req_api_cfg = load_config().get("api", {})
+            api_cfg = load_config().get("api")
+            self._req_api_cfg = api_cfg if isinstance(api_cfg, dict) else {}
         return self._req_api_cfg
 
     def _api_enabled(self) -> bool:
