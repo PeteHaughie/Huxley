@@ -39,6 +39,72 @@ class OpenAICompatibleClientTests(unittest.TestCase):
 
         client_cls.assert_not_called()
 
+    @patch("harness.server.inference.httpx.Client")
+    def test_stream_chat_sends_stream_true_and_yields_chunks(self, client_cls):
+        chunk = {"choices": [{"delta": {"content": "hi"}, "finish_reason": None}]}
+        sse_lines = [
+            f"data: {__import__('json').dumps(chunk)}",
+            "data: [DONE]",
+        ]
+
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.iter_lines.return_value = iter(sse_lines)
+
+        stream_ctx = MagicMock()
+        stream_ctx.__enter__ = MagicMock(return_value=resp)
+        stream_ctx.__exit__ = MagicMock(return_value=False)
+
+        client = MagicMock()
+        client.stream.return_value = stream_ctx
+        client_cls.return_value.__enter__.return_value = client
+
+        api = OpenAICompatibleClient(endpoint="http://localhost:1234/v1", model="alpha")
+        results = list(
+            api.stream_chat(
+                messages=[{"role": "user", "content": "hello"}],
+                max_tokens=16,
+                temperature=0.5,
+                request_options={"tools": [{"type": "function"}], "response_format": {"type": "json_object"}},
+            )
+        )
+
+        sent_body = client.stream.call_args.kwargs["json"]
+        self.assertTrue(sent_body.get("stream"))
+        self.assertIn("tools", sent_body)
+        self.assertIn("response_format", sent_body)
+
+        self.assertEqual(results[0], chunk)
+        self.assertEqual(results[-1], "[DONE]")
+
+    @patch("harness.server.inference.httpx.Client")
+    def test_stream_chat_stops_after_done(self, client_cls):
+        chunk1 = {"choices": [{"delta": {"content": "a"}, "finish_reason": None}]}
+        chunk2 = {"choices": [{"delta": {"content": "b"}, "finish_reason": None}]}
+        sse_lines = [
+            f"data: {__import__('json').dumps(chunk1)}",
+            f"data: {__import__('json').dumps(chunk2)}",
+            "data: [DONE]",
+            f"data: {__import__('json').dumps({'should': 'not appear'})}",
+        ]
+
+        resp = MagicMock()
+        resp.raise_for_status.return_value = None
+        resp.iter_lines.return_value = iter(sse_lines)
+
+        stream_ctx = MagicMock()
+        stream_ctx.__enter__ = MagicMock(return_value=resp)
+        stream_ctx.__exit__ = MagicMock(return_value=False)
+
+        client = MagicMock()
+        client.stream.return_value = stream_ctx
+        client_cls.return_value.__enter__.return_value = client
+
+        api = OpenAICompatibleClient(endpoint="http://localhost:1234/v1", model="alpha")
+        results = list(api.stream_chat(messages=[{"role": "user", "content": "go"}]))
+
+        self.assertEqual(results, [chunk1, chunk2, "[DONE]"])
+
 
 class RouterAliasCollisionTests(unittest.TestCase):
     def test_colliding_aliases_do_not_override_builtin_model_routes(self):
