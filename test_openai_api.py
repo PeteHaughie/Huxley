@@ -130,6 +130,14 @@ class OpenAIAPITests(unittest.TestCase):
 
         self.assertEqual(payload["openai_api"]["url"], f"{self.base_url}/v1")
 
+    def test_status_route_handles_null_api_config(self):
+        with mock.patch.object(daemon_server, "load_config", return_value={"api": None}):
+            with urllib.request.urlopen(f"{self.base_url}/v1/status", timeout=5) as resp:
+                payload = json.loads(resp.read())
+
+        self.assertTrue(payload["openai_api"]["enabled"])
+        self.assertTrue(payload["openai_api"]["localhost_only"])
+
     def test_chat_completions_route_forwards_request_shape(self):
         req = urllib.request.Request(
             f"{self.base_url}/v1/chat/completions",
@@ -251,6 +259,57 @@ class OpenAIAPITests(unittest.TestCase):
             payload = resp.read().decode()
 
         self.assertEqual(payload.strip(), "data: [DONE]")
+
+    def test_chat_completions_streaming_closes_generator_on_broken_pipe(self):
+        closed = threading.Event()
+
+        def streaming_with_cleanup(**_kwargs):
+            try:
+                yield {
+                    "id": "chatcmpl-stream",
+                    "object": "chat.completion.chunk",
+                    "created": 123,
+                    "model": "alpha",
+                    "choices": [{"index": 0, "delta": {"content": "ok"}, "finish_reason": None}],
+                }
+                yield {
+                    "id": "chatcmpl-stream",
+                    "object": "chat.completion.chunk",
+                    "created": 123,
+                    "model": "alpha",
+                    "choices": [{"index": 0, "delta": {}, "finish_reason": "stop"}],
+                }
+            finally:
+                closed.set()
+
+        self.fake_scheduler.openai_chat_completion_stream = streaming_with_cleanup
+        original_write_sse_event = daemon_server.DaemonHandler._write_sse_event
+        write_count = {"count": 0}
+
+        def broken_pipe_on_first_chunk(handler, payload):
+            write_count["count"] += 1
+            if write_count["count"] == 1:
+                raise BrokenPipeError
+            return original_write_sse_event(handler, payload)
+
+        req = urllib.request.Request(
+            f"{self.base_url}/v1/chat/completions",
+            data=json.dumps(
+                {
+                    "model": "alpha",
+                    "messages": [{"role": "user", "content": "hello"}],
+                    "stream": True,
+                }
+            ).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+
+        with mock.patch.object(daemon_server.DaemonHandler, "_write_sse_event", new=broken_pipe_on_first_chunk):
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                resp.read()
+
+        self.assertTrue(closed.wait(timeout=1))
 
     def test_chat_completions_rejects_invalid_json(self):
         req = urllib.request.Request(
