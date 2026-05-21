@@ -197,6 +197,9 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             except (json.JSONDecodeError, UnicodeDecodeError):
                 self._send_error_json(400, "invalid JSON body")
                 return
+            except (ValueError, OverflowError):
+                self._send_error_json(400, "invalid Content-Length")
+                return
             if not isinstance(body, dict):
                 self._send_error_json(400, "JSON body must be an object")
                 return

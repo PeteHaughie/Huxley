@@ -99,8 +99,6 @@ class Beta(CasteBase):
     def complete_chat(self, messages: list[dict], max_tokens: int, temperature: float = 0.1) -> str:
         try:
             self._load()
-        except ImportError as e:
-            raise RuntimeError(f"missing dep: {e}") from e
         except Exception as e:
             raise RuntimeError(f"model load failed: {e}") from e
         try:
@@ -111,8 +109,6 @@ class Beta(CasteBase):
     def stream_chat(self, messages: list[dict], max_tokens: int, temperature: float = 0.1) -> Iterator[dict]:
         try:
             self._load()
-        except ImportError as e:
-            raise RuntimeError(f"missing dep: {e}") from e
         except Exception as e:
             raise RuntimeError(f"model load failed: {e}") from e
 
