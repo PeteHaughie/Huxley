@@ -121,7 +121,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 self._send_error_json(404, "not found", error_type="not_found_error")
                 return
             if self._localhost_only() and not self._is_loopback_client():
-                self._send_error_json(403, "OpenAI-compatible API is restricted to localhost")
+                self._send_error_json(403, "OpenAI-compatible API is restricted to localhost", error_type="permission_error")
                 return
             self._send({"object": "list", "data": _scheduler.openai_models()})
         elif path == "/v1/status":
@@ -190,7 +190,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 self._send_error_json(404, "not found", error_type="not_found_error")
                 return
             if self._localhost_only() and not self._is_loopback_client():
-                self._send_error_json(403, "OpenAI-compatible API is restricted to localhost")
+                self._send_error_json(403, "OpenAI-compatible API is restricted to localhost", error_type="permission_error")
                 return
             content_type = self.headers.get_content_type()
             if content_type != "application/json":
@@ -198,7 +198,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 return
             origin = self.headers.get("Origin", "").strip()
             if origin and not self._is_loopback_origin(origin):
-                self._send_error_json(403, "Origin is not allowed")
+                self._send_error_json(403, "Origin is not allowed", error_type="permission_error")
                 return
             try:
                 body = self._read_body()
