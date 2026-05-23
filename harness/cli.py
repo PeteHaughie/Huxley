@@ -11,7 +11,7 @@ from harness.comms.router import Router
 from harness.skill.registry import SkillRegistry
 from harness.cloud.router import CloudRouter
 from harness.selfmod.introspect import module_map, api_surface
-from harness.selfmod.patcher import Patcher
+from harness.selfmod.patcher import Patcher, PATCH_DIR
 from harness.board import JobBoard, Task, Level as BLevel, State as BState
 from harness.board.serve import serve as board_serve
 from harness.board.lifecycle import start_boardd, stop_boardd, boardd_status
@@ -130,12 +130,81 @@ def cmd_cloud(args):
 
 
 def cmd_patch(args):
+    # list known patches
+    if getattr(args, "list", False):
+        if not PATCH_DIR.exists():
+            print("γ|patch|list|empty", flush=True)
+            return
+        baks = sorted(PATCH_DIR.glob("*_*.bak"))
+        if not baks:
+            print("γ|patch|list|empty", flush=True)
+            return
+        for b in baks:
+            pid = b.name.split("_")[0]
+            meta = PATCH_DIR / f"{pid}.meta"
+            if meta.exists():
+                fname = "_".join(b.name.split("_")[1:])
+                if fname.endswith('.bak'):
+                    fname = fname[:-4]
+                print(f"γ|patch|entry|{pid}|{fname}|{b.stat().st_mtime}", flush=True)
+            else:
+                print(f"γ|patch|entry_legacy|{pid}|{b.stat().st_mtime}", flush=True)
+        return
+
+    # rollback
+    if getattr(args, "rollback", None):
+        patcher = Patcher()
+        ok = patcher.rollback(args.rollback)
+        print(f"γ|patch|rollback|{'ok' if ok else 'not_found'}|{args.rollback}", flush=True)
+        return 0 if ok else 1
+
     patcher = Patcher()
-    content = Path(args.file).read_text()
+
+    # normal patch flow: read new content from stdin, validate file argument
+    if not args.file:
+        print("γ|patch|err|file argument required", flush=True)
+        return 1
+    if sys.stdin.isatty():
+        print("γ|patch|err|pipe new content via stdin (e.g., echo 'new_code()' | huxley patch file.py)", flush=True)
+        return 1
+    content = sys.stdin.read()
+    if not content.strip():
+        print("γ|patch|err|empty content", flush=True)
+        return 1
     result = patcher.apply(args.file, content, dry_run=args.dry_run)
-    print(f"γ|patch|{'ok' if result['ok'] else 'err'}|{result.get('patch_id', '')}", flush=True)
-    if "diff" in result:
+    ok = result.get("ok", False)
+    err = result.get("error", "")
+    print(f"γ|patch|{'ok' if ok else 'err'}|{result.get('patch_id','')}", flush=True)
+    if err:
+        print(f"γ|patch|error|{err}", flush=True)
+        return 1
+    if "diff" in result and result.get("diff"):
         print(result["diff"], flush=True)
+
+    # optionally post to board for human review
+    if ok and result.get("changed") and getattr(args, "review", False):
+        from harness.selfmod.validator import validate_patch
+        board = JobBoard()
+        pid = result.get("patch_id", "")
+        title = f"Review patch {pid} -> {Path(args.file).name}"
+        difftext = result.get("diff", f"Patch {pid} for {args.file}")
+        report_lines = []
+        if args.file.endswith(".py"):
+            val = validate_patch(args.file, content)
+            if val.get("ok"):
+                report_lines.append("Validator: OK")
+            else:
+                for e in val.get("errors", []):
+                    report_lines.append(f"ERROR: {e}")
+            for w in val.get("warnings", []):
+                report_lines.append(f"WARN: {w}")
+        else:
+            report_lines.append("Validator: skipped (non-Python file)")
+        prompt = difftext + "\n\n" + "\n".join(report_lines)
+        t = Task(level=BLevel.TASK, title=title, prompt=prompt)
+        board.create(t)
+        print(f"γ|patch|posted|{t.id[:12]}|{title}", flush=True)
+    return 0
 
 
 def cmd_models(args):
@@ -495,9 +564,13 @@ def main():
     cloud_p.add_argument("prompt", help="Prompt text")
     cloud_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
 
-    patch_p = sub.add_parser("patch", help="Apply a self-mod patch (dry-run by default)")
-    patch_p.add_argument("file", help="Target Python file")
+    patch_p = sub.add_parser("patch", help="Self-mod patch (pipe new content via stdin, dry-run by default)")
+    patch_p.add_argument("file", nargs='?', help="Target file to patch")
     patch_p.add_argument("--apply", dest="dry_run", action="store_false", help="Apply the patch")
+    patch_p.add_argument("--review", action="store_true", help="Post patch diff to board for review")
+    patch_group = patch_p.add_mutually_exclusive_group()
+    patch_group.add_argument("--list", action="store_true", help="List known patches/backups")
+    patch_group.add_argument("--rollback", help="Rollback patch by patch id")
     patch_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
 
     models_p = sub.add_parser("models", help="List models in ~/.huxley/models/")
@@ -601,7 +674,9 @@ def main():
     elif args.command == "cloud":
         cmd_cloud(args)
     elif args.command == "patch":
-        cmd_patch(args)
+        rc = cmd_patch(args)
+        if rc:
+            sys.exit(rc)
     elif args.command == "models":
         cmd_models(args)
     elif args.command == "compact":

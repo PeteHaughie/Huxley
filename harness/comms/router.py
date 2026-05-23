@@ -1,8 +1,9 @@
 from __future__ import annotations
+import sys
 import time
+import yaml
 from typing import Iterator
 from harness.comms.message import Message, Caste, Action
-from harness.config import load_config
 
 
 class OpenAIRequestError(Exception):
@@ -25,8 +26,23 @@ class Router:
             Caste.BETA: self._beta,
             Caste.ALPHA: self._alpha,
         }
-        api_cfg = load_config().get("api", {})
+        # import config at runtime so tests can patch harness.config.load_config
+        try:
+            import harness.config as _hc
+            api_cfg = _hc.load_config().get("api", {})
+        except (FileNotFoundError, OSError, yaml.YAMLError) as e:
+            print(f"γ|router|config_err|{type(e).__name__}: {e}", file=sys.stderr, flush=True)
+            api_cfg = {}
         self._api_cfg = dict(api_cfg) if isinstance(api_cfg, dict) else {}
+        try:
+            import os, traceback
+            if os.environ.get("HUXLEY_DEBUG_ROUTER_INIT") and not getattr(Router, "_debug_printed", False):
+                stack = traceback.format_stack()
+                caller = stack[-3].strip() if len(stack) >= 3 else stack[0].strip()
+                print("γ|router|debug|api_cfg_keys=", list(self._api_cfg.keys()), "caller=", caller, file=sys.stderr, flush=True)
+                Router._debug_printed = True
+        except Exception:
+            pass
 
     def dispatch(self, msg: Message) -> Message:
         handler = self._routes.get(msg.caste)
@@ -192,6 +208,15 @@ class Router:
         }
         resolved = alias_map.get(str(model).strip().lower())
         if resolved is None:
+            try:
+                import os
+                if os.environ.get("HUXLEY_DEBUG_RESOLVE"):
+                    print("γ|router|resolve|unknown model", model, "api_cfg_keys=", list(self._api_cfg.keys()), file=sys.stderr, flush=True)
+                    regs = self._openai_model_registry()
+                    print("γ|router|resolve|registry ids=", [r.get("id") for r in regs], file=sys.stderr, flush=True)
+                    print("γ|router|resolve|alias_map_keys=", list(alias_map.keys()), file=sys.stderr, flush=True)
+            except Exception:
+                pass
             raise ValueError(f"unknown model: {model}")
         return resolved
 

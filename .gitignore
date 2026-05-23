@@ -1,4 +1,15 @@
+desktop/src-tauri/target/
+.DS_Store
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.mypy_cache/
+.pytest_cache/
+env/
+venv/
+build/
+dist/__pycache__/
 *.py[cod]
 *.egg-info/
 dist/
@@ -6,3 +17,6 @@ build/
 .venv/
 *.gguf
 .huxley
+desktop/
+node_modules/
+materialized-projects/
