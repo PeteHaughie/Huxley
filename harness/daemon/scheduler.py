@@ -168,6 +168,7 @@ class SchedulerEngine:
         self._peer_activity_ttl = 120
         self._inference_lock = threading.Lock()
         self._pending_reload = False
+        self._reload_handler_installed = False
 
     @property
     def running(self) -> bool:
@@ -182,8 +183,9 @@ class SchedulerEngine:
             if hasattr(signal, 'SIGHUP'):
                 from harness.selfmod.restart import register_reload_handler
                 register_reload_handler()
-        except Exception:
-            pass
+                self._reload_handler_installed = True
+        except Exception as e:
+            print(f"γ|scheduler|reload_handler_err|{e}", file=__import__('sys').stderr, flush=True)
         cfg = load_config()
         if cfg.get("swarm", {}).get("enabled", True):
             port = self._daemon_port or cfg.get("daemon", {}).get("port", 8083)
@@ -701,8 +703,10 @@ class SchedulerEngine:
         if self._pending_reload:
             try:
                 import signal, os
-                if hasattr(signal, 'SIGHUP'):
+                if self._reload_handler_installed and hasattr(signal, 'SIGHUP'):
                     os.kill(os.getpid(), signal.SIGHUP)
+                elif not self._reload_handler_installed:
+                    print("γ|scheduler|reload_skip|handler_not_installed", flush=True)
             except Exception as e:
                 print(f"γ|scheduler|reload_err|{e}", flush=True)
             finally:

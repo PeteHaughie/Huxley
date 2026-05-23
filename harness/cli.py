@@ -171,6 +171,14 @@ def cmd_patch(args):
     if not content.strip():
         print("γ|patch|err|empty content", flush=True)
         return 1
+    # validate .py targets before applying (skip for dry-run, only block on apply)
+    if not args.dry_run and args.file.endswith(".py"):
+        from harness.selfmod.validator import validate_patch
+        val = validate_patch(args.file, content)
+        if not val.get("ok"):
+            for e in val.get("errors", []):
+                print(f"γ|patch|err|validate|{e}", flush=True)
+            return 1
     result = patcher.apply(args.file, content, dry_run=args.dry_run)
     ok = result.get("ok", False)
     err = result.get("error", "")

@@ -10,7 +10,7 @@ REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
 def _run_cli(home_dir: str, *args: str, stdin: str = "", expect_fail: bool = False) -> tuple:
-    env = {**os.environ, "HOME": home_dir, "PYTHONPATH": REPO_ROOT}
+    env = {**os.environ, "HOME": home_dir, "USERPROFILE": home_dir, "HOMEPATH": home_dir, "PYTHONPATH": REPO_ROOT}
     result = subprocess.run(
         [sys.executable, "-m", "harness.cli", *args],
         capture_output=True, text=True,
