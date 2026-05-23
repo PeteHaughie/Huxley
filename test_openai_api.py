@@ -569,7 +569,7 @@ class OpenAIAPITests(unittest.TestCase):
             payload = json.loads(resp.read())
 
         self.assertEqual(payload["object"], "list")
-        self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "*")
+        self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "http://localhost:3000")
 
     def test_openai_routes_allow_cors_from_noncanonical_loopback_origins(self):
         for origin in ("http://127.0.0.2:3000", "http://[0:0:0:0:0:0:0:1]:3000"):
@@ -583,7 +583,7 @@ class OpenAIAPITests(unittest.TestCase):
                     payload = json.loads(resp.read())
 
                 self.assertEqual(payload["object"], "list")
-                self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), "*")
+                self.assertEqual(resp.headers.get("Access-Control-Allow-Origin"), origin)
 
     def test_non_openai_routes_do_not_allow_cross_origin_reads_from_remote_origins(self):
         req = urllib.request.Request(
