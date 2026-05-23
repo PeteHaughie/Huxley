@@ -109,7 +109,7 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         if not self._is_openai_route(route):
             return None
         if self._is_loopback_host(parsed.hostname):
-            return "*"
+            return origin
         return None
 
     def do_GET(self):
