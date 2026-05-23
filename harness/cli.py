@@ -168,7 +168,14 @@ def cmd_daemon(args):
     elif args.daemon_cmd == "status":
         st = daemon_status()
         if st["running"]:
-            print(f"γ|huxleyd|running|scheduler={st.get('scheduler_running', False)}|schedules={st.get('schedules', 0)}", flush=True)
+            api = st.get("openai_api", {})
+            models = ",".join(api.get("models", [])) or "none"
+            print(
+                f"γ|huxleyd|running|scheduler={st.get('scheduler_running', False)}|"
+                f"schedules={st.get('schedules', 0)}|openai={api.get('url', f'http://127.0.0.1:{DAEMON_PORT}/v1')}|"
+                f"models={models}",
+                flush=True,
+            )
         else:
             print("γ|huxleyd|stopped", flush=True)
 

@@ -197,7 +197,58 @@ huxley daemon status
 huxley daemon stop
 ```
 
-The daemon exposes an HTTP control API on `localhost:8083` (`HUXLEYD_PORT`) for internal CLI commands. It stays resident so castes don't need to reload models between invocations.
+The daemon exposes an HTTP control API on `localhost:8083` by default (`HUXLEYD_PORT`) for internal CLI commands. It stays resident so castes don't need to reload models between invocations.
+
+### OpenAI-Compatible Inference API
+
+When `huxleyd` is running, it also exposes an OpenAI-style inference surface at `http://127.0.0.1:8083/v1` by default (`HUXLEYD_PORT` and `api.localhost_only` are configurable).
+
+```bash
+# Start the daemon
+huxley daemon start
+
+# Check the API endpoint and exposed models
+huxley daemon status
+# γ|huxleyd|running|...|openai=http://127.0.0.1:8083/v1|models=gemma-4-e4b,alpha,ternary-bonsai-8b,beta
+
+# List exposed models
+curl http://127.0.0.1:8083/v1/models
+
+# Chat with beta
+curl http://127.0.0.1:8083/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"beta","messages":[{"role":"user","content":"Summarise this repo in one line."}]}'
+
+# Chat with alpha
+curl http://127.0.0.1:8083/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"alpha","messages":[{"role":"user","content":"Plan a refactor for the scheduler."}]}'
+
+# Stream chat chunks from beta
+curl -N http://127.0.0.1:8083/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"beta","stream":true,"messages":[{"role":"user","content":"Reply in one short line."}]}'
+
+# Stream chat chunks from alpha
+curl -N http://127.0.0.1:8083/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"alpha","stream":true,"messages":[{"role":"user","content":"Reply in one short line."}]}'
+```
+
+Current compatibility scope:
+
+- `GET /v1/models`
+- `POST /v1/chat/completions`
+- both JSON and `stream=true` SSE responses
+- exposed model IDs: backend IDs (`gemma-4-e4b`, `ternary-bonsai-8b`) plus aliases such as `alpha` and `beta`
+- terminal streaming marker: `data: [DONE]`
+
+Live smoke test against a running daemon:
+
+```bash
+# one-shot plus streaming smoke tests
+HUXLEY_LIVE_API_TEST=1 python -m unittest test_openai_api_live.py -v
+```
 
 ## Scheduler
 

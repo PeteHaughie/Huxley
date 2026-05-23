@@ -6,7 +6,7 @@ import os
 import urllib.request
 import urllib.error
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Iterator
 
 from harness.caste._base import CasteBase
 from harness.config import load_config
@@ -87,6 +87,8 @@ class Alpha(CasteBase):
         acfg = self.cfg["alpha"]
         if self._proc and self._proc.poll() is None:
             return True
+        if self.client().health():
+            return True
         self._clear_stale_listener()
 
         cmd = [
@@ -154,12 +156,19 @@ class Alpha(CasteBase):
         self.stop_server()
         return self.start_server()
 
-    def _chat_with_recovery(self, messages: list[dict], max_tokens: int) -> dict:
+    def _chat_with_recovery(
+        self,
+        messages: list[dict],
+        max_tokens: int,
+        temperature: float = 0.1,
+        request_options: dict | None = None,
+    ) -> dict:
         try:
             return self.client().chat(
                 messages=messages,
                 max_tokens=max_tokens,
-                temperature=0.1,
+                temperature=temperature,
+                request_options=request_options,
             )
         except Exception as e:
             if not self._should_restart_for_error(e):
@@ -170,17 +179,64 @@ class Alpha(CasteBase):
             return self.client().chat(
                 messages=messages,
                 max_tokens=max_tokens,
-                temperature=0.1,
+                temperature=temperature,
+                request_options=request_options,
             )
 
-    def infer(self, msg: Message) -> Message:
+    def complete_chat(
+        self,
+        messages: list[dict],
+        max_tokens: int,
+        temperature: float = 0.1,
+        request_options: dict | None = None,
+    ) -> dict:
         if not self.start_server():
-            return Message(
-                caste=Caste.ALPHA,
-                action=Action.INFER,
-                payload={"error": f"alpha server unavailable on port {ALPHA_PORT} — install llama.cpp or check config"},
-                session=msg.session,
-            )
+            raise RuntimeError(f"alpha server unavailable on port {ALPHA_PORT} — install llama.cpp or check config")
+        return self._chat_with_recovery(
+            messages=messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+            request_options=request_options,
+        )
+
+    def stream_chat(
+        self,
+        messages: list[dict],
+        max_tokens: int,
+        temperature: float = 0.1,
+        request_options: dict | None = None,
+    ) -> Iterator[dict]:
+        if not self.start_server():
+            raise RuntimeError(f"alpha server unavailable on port {ALPHA_PORT} — install llama.cpp or check config")
+        try:
+            for event in self.client().stream_chat(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                request_options=request_options,
+            ):
+                if event == "[DONE]":
+                    break
+                if isinstance(event, dict):
+                    yield event
+        except Exception as e:
+            if not self._should_restart_for_error(e):
+                raise
+            print("γ|alpha|recover|restart server after upstream streaming failure", flush=True)
+            if not self._restart_server():
+                raise
+            for event in self.client().stream_chat(
+                messages=messages,
+                max_tokens=max_tokens,
+                temperature=temperature,
+                request_options=request_options,
+            ):
+                if event == "[DONE]":
+                    break
+                if isinstance(event, dict):
+                    yield event
+
+    def infer(self, msg: Message) -> Message:
         try:
             from harness.memory.persistence import SessionJournal
             user_content = _fmt_alpha_prompt(msg)
@@ -191,9 +247,10 @@ class Alpha(CasteBase):
                     self._compact_journal(journal, msg)
                 history = journal.read(max_tokens=msg.token_budget.get("input", 4096))
             messages = history + [{"role": "user", "content": user_content}]
-            resp = self._chat_with_recovery(
+            resp = self.complete_chat(
                 messages=messages,
                 max_tokens=msg.token_budget.get("output", 2048),
+                temperature=0.1,
             )
             msg_content = resp["choices"][0]["message"]
             content = msg_content.get("content", "") or msg_content.get("reasoning_content", "")
@@ -223,6 +280,7 @@ class Alpha(CasteBase):
             resp = self._chat_with_recovery(
                 messages=[{"role": "system", "content": "You are a precise summarizer. Output only the summary paragraph, no preamble."}, {"role": "user", "content": cprompt}],
                 max_tokens=msg.token_budget.get("output", 256),
+                temperature=0.1,
             )
             summary = resp["choices"][0]["message"]["content"].strip()
             if summary:
