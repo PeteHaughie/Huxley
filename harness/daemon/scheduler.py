@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import time
 import uuid
 import threading
@@ -185,7 +186,7 @@ class SchedulerEngine:
                 register_reload_handler()
                 self._reload_handler_installed = True
         except Exception as e:
-            print(f"γ|scheduler|reload_handler_err|{e}", file=__import__('sys').stderr, flush=True)
+            print(f"γ|scheduler|reload_handler_err|{e}", file=sys.stderr, flush=True)
         cfg = load_config()
         if cfg.get("swarm", {}).get("enabled", True):
             port = self._daemon_port or cfg.get("daemon", {}).get("port", 8083)
@@ -748,6 +749,8 @@ class SchedulerEngine:
 
         if not file_key:
             raise RuntimeError(f"self_mod: file key is missing from action: {file_key}")
+        if not isinstance(file_key, str):
+            raise RuntimeError(f"self_mod: file key must be a string, got {type(file_key).__name__}: {file_key!r}")
 
         project_root = Path(__file__).resolve().parents[2]
         file_path = Path(file_key).expanduser()

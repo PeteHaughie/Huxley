@@ -31,7 +31,7 @@ class Patcher:
                 "ok": True,
                 "changed": True,
                 "patch_id": patch_id,
-                "diff": _make_diff(target, original, new_content),
+                "diff": _make_diff(file_path, original, new_content),
             }
 
         try:
@@ -61,7 +61,7 @@ class Patcher:
             "changed": True,
             "patch_id": patch_id,
             "backup": str(backup),
-            "diff": _make_diff(target, original, new_content),
+            "diff": _make_diff(file_path, original, new_content),
         }
 
     @staticmethod
@@ -114,7 +114,7 @@ class Patcher:
         return False
 
 
-def _make_diff(file_path: Path, original: str, new_content: str) -> str:
+def _make_diff(file_path: str | Path, original: str, new_content: str) -> str:
     original_lines = original.splitlines(keepends=True)
     new_lines = new_content.splitlines(keepends=True)
     diff = difflib.unified_diff(
