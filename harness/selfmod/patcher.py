@@ -92,7 +92,12 @@ class Patcher:
         if meta.exists():
             try:
                 data = json.loads(meta.read_text(encoding="utf-8"))
-                orig = self._resolve_allowed_file(Path(data["original_path"]))
+                if not isinstance(data, dict):
+                    return False
+                original_path = data.get("original_path")
+                if not isinstance(original_path, str):
+                    return False
+                orig = self._resolve_allowed_file(Path(original_path))
                 if orig is None:
                     return False
                 bak = PATCH_DIR / f"{patch_id}_{orig.name}.bak"
@@ -111,12 +116,15 @@ class Patcher:
             target_name = bak.name.split("_", 1)[1]
             if target_name.endswith(".bak"):
                 target_name = target_name[:-4]
-            matches = []
+            matches: list[Path] = []
             for d in (self._project_root(), Path.home() / ".huxley"):
-                matches.extend(d.rglob(target_name))
+                for candidate in d.rglob(target_name):
+                    target = self._resolve_allowed_file(candidate)
+                    if target is not None and target not in matches:
+                        matches.append(target)
             if len(matches) == 1:
-                target = self._resolve_allowed_file(matches[0])
-                if target is None or not bak.is_file():
+                target = matches[0]
+                if not bak.is_file():
                     return False
                 shutil.copy2(bak, target)
                 bak.unlink()
