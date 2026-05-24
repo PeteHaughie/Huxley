@@ -9,7 +9,6 @@ from harness.memory import SessionStore
 from harness.comms import Message, Caste, Action, ContextHint
 from harness.comms.router import Router
 from harness.skill.registry import SkillRegistry
-from harness.cloud.router import CloudRouter
 from harness.selfmod.introspect import module_map, api_surface
 from harness.selfmod.patcher import Patcher, PATCH_DIR
 from harness.board import JobBoard, Task, Level as BLevel, State as BState
@@ -115,6 +114,7 @@ def cmd_modules(args):
 
 
 def cmd_cloud(args):
+    from harness.cloud.router import CloudRouter
     cr = CloudRouter()
     msg = Message(
         caste=Caste.BETA,

@@ -184,6 +184,10 @@ def _repair_legacy_paths(cfg: dict) -> bool:
                 if value.startswith(legacy):
                     repaired = True
                     return replacement + value[len(legacy):]
+            # Also handle absolute paths containing /.monster/ from any home directory
+            if "/.monster/" in value:
+                repaired = True
+                return value.replace("/.monster/", "/.huxley/", 1)
         return value
 
     for key, value in list(cfg.items()):
