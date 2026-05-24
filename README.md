@@ -544,11 +544,14 @@ huxley infer α "what should I work on next?"
 # Route through cloud endpoint (requires cloud config)
 huxley cloud "explain quantum computing"
 
-# Dry-run a self-mod patch (pipe new content)
+# Dry-run a self-mod patch (pipe new content via stdin)
 echo "..." | huxley patch harness/cli.py
 
-# Apply a self-mod patch (pipe new content)
+# Apply a self-mod patch (pipe new content via stdin)
 echo "..." | huxley patch --apply harness/config.py
+
+# Post a patch diff + validator report to the board for review
+echo "..." | huxley patch --review harness/daemon/scheduler.py
 
 # List existing patches
 huxley patch --list
@@ -572,7 +575,9 @@ huxley patch --rollback <patch_id>
 | `huxley modules` | List all harness modules |
 | `huxley models` | List GGUF models in `~/.huxley/models/` |
 | `huxley cloud <prompt>` | Route prompt via cloud endpoint |
-| `huxley patch [--list\|--rollback <id>\|--apply\|--review] [<file>]` | Self-mod patch (content from stdin; `<file>` required for patch/apply/review) |
+| `huxley patch --list` | List known patches/backups |
+| `huxley patch --rollback <id>` | Roll back a patch by ID |
+| `echo "..." \| huxley patch [--apply\|--review] <file>` | Create, apply, or review a self-mod patch using stdin content |
 | `huxley compact [--caste]` | Compact session journal via summarisation |
 | `huxley daemon start\|stop\|status` | Manage huxley background daemon |
 | `huxley schedule list\|add\|remove\|history` | Manage scheduled tasks |

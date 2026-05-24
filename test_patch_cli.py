@@ -58,6 +58,52 @@ class TestPatchCLI(unittest.TestCase):
             out, _, _ = _run_cli(td, "patch", "--list")
             self.assertIn("γ|patch|list|empty", out)
 
+    def test_patch_rollback_rejects_meta_path_outside_allowed_roots(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = td
+            patches = os.path.join(home, ".huxley", "patches")
+            os.makedirs(patches, exist_ok=True)
+            pid = "blockedmeta01"
+            outside_path = os.path.join(home, "outside.py")
+            with open(outside_path, "w") as f:
+                f.write("# outside target\n")
+            with open(os.path.join(patches, f"{pid}.meta"), "w") as f:
+                f.write(json.dumps({"original_path": outside_path}))
+            with open(os.path.join(patches, f"{pid}_outside.py.bak"), "w") as f:
+                f.write("# backup content\n")
+
+            out, _, rc = _run_cli(home, "patch", "--rollback", pid, expect_fail=True)
+            self.assertNotEqual(rc, 0)
+            self.assertIn(f"γ|patch|rollback|not_found|{pid}", out)
+            with open(outside_path) as f:
+                self.assertEqual("# outside target\n", f.read())
+
+    def test_patch_rollback_legacy_symlink_must_resolve_inside_allowed_roots(self):
+        if not hasattr(os, "symlink"):
+            self.skipTest("symlinks unsupported on this platform")
+        with tempfile.TemporaryDirectory() as td:
+            home = td
+            patches = os.path.join(home, ".huxley", "patches")
+            target_dir = os.path.join(home, ".huxley", "somepath")
+            os.makedirs(patches, exist_ok=True)
+            os.makedirs(target_dir, exist_ok=True)
+            pid = "legacysymlink"
+            fname = "test_target.py"
+            bak_path = os.path.join(patches, f"{pid}_{fname}.bak")
+            outside_path = os.path.join(home, "outside.py")
+            with open(outside_path, "w") as f:
+                f.write("# outside target\n")
+            with open(bak_path, "w") as f:
+                f.write("# backup content\n")
+            os.symlink(outside_path, os.path.join(target_dir, fname))
+
+            out, _, rc = _run_cli(home, "patch", "--rollback", pid, expect_fail=True)
+            self.assertNotEqual(rc, 0)
+            self.assertIn(f"γ|patch|rollback|not_found|{pid}", out)
+            with open(outside_path) as f:
+                self.assertEqual("# outside target\n", f.read())
+            self.assertTrue(os.path.exists(bak_path))
+
     def test_patch_requires_file_for_normal_flow(self):
         with tempfile.TemporaryDirectory() as td:
             out, _, rc = _run_cli(td, "patch", expect_fail=True)

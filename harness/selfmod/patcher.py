@@ -75,6 +75,16 @@ class Patcher:
             for root in (Patcher._project_root(), Path.home() / ".huxley")
         )
 
+    @staticmethod
+    def _resolve_allowed_file(path: Path) -> Path | None:
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            return None
+        if not resolved.is_file() or not Patcher._path_allowed(resolved):
+            return None
+        return resolved
+
     def rollback(self, patch_id: str):
         if "/" in patch_id or "\\" in patch_id or ".." in patch_id or "\0" in patch_id or any(c in patch_id for c in "*?["):
             return False
@@ -82,11 +92,11 @@ class Patcher:
         if meta.exists():
             try:
                 data = json.loads(meta.read_text(encoding="utf-8"))
-                orig = Path(data["original_path"]).expanduser().resolve()
-                if not orig.is_file() or not self._path_allowed(orig):
+                orig = self._resolve_allowed_file(Path(data["original_path"]))
+                if orig is None:
                     return False
                 bak = PATCH_DIR / f"{patch_id}_{orig.name}.bak"
-                if bak.exists():
+                if bak.is_file():
                     shutil.copy2(bak, orig)
                     bak.unlink()
                     meta.unlink()
@@ -105,8 +115,8 @@ class Patcher:
             for d in (self._project_root(), Path.home() / ".huxley"):
                 matches.extend(d.rglob(target_name))
             if len(matches) == 1:
-                target = matches[0].resolve()
-                if not target.is_file() or not self._path_allowed(target):
+                target = self._resolve_allowed_file(matches[0])
+                if target is None or not bak.is_file():
                     return False
                 shutil.copy2(bak, target)
                 bak.unlink()
