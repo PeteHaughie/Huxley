@@ -130,15 +130,19 @@ def cmd_cloud(args):
 
 
 def cmd_patch(args):
+    if getattr(args, "list", False) or getattr(args, "rollback", None):
+        if args.file or getattr(args, "review", False) or not args.dry_run:
+            print("γ|patch|err|--list/--rollback cannot be combined with --apply, --review, or <file>", flush=True)
+            return 1
     # list known patches
     if getattr(args, "list", False):
         if not PATCH_DIR.exists():
             print("γ|patch|list|empty", flush=True)
-            return
+            return 0
         baks = sorted(PATCH_DIR.glob("*_*.bak"))
         if not baks:
             print("γ|patch|list|empty", flush=True)
-            return
+            return 0
         for b in baks:
             pid = b.name.split("_")[0]
             meta = PATCH_DIR / f"{pid}.meta"
@@ -149,7 +153,7 @@ def cmd_patch(args):
                 print(f"γ|patch|entry|{pid}|{fname}|{b.stat().st_mtime}", flush=True)
             else:
                 print(f"γ|patch|entry_legacy|{pid}|{b.stat().st_mtime}", flush=True)
-        return
+        return 0
 
     # rollback
     if getattr(args, "rollback", None):
@@ -682,9 +686,7 @@ def main():
     elif args.command == "cloud":
         cmd_cloud(args)
     elif args.command == "patch":
-        rc = cmd_patch(args)
-        if rc:
-            sys.exit(rc)
+        sys.exit(cmd_patch(args))
     elif args.command == "models":
         cmd_models(args)
     elif args.command == "compact":

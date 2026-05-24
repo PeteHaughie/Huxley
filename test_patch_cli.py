@@ -58,6 +58,12 @@ class TestPatchCLI(unittest.TestCase):
             out, _, _ = _run_cli(td, "patch", "--list")
             self.assertIn("γ|patch|list|empty", out)
 
+    def test_patch_rejects_ambiguous_list_flags(self):
+        with tempfile.TemporaryDirectory() as td:
+            out, _, rc = _run_cli(td, "patch", "--list", "--review", "dummy.py", expect_fail=True)
+            self.assertNotEqual(rc, 0)
+            self.assertIn("--list/--rollback cannot be combined", out)
+
     def test_patch_rollback_rejects_meta_path_outside_allowed_roots(self):
         with tempfile.TemporaryDirectory() as td:
             home = td
