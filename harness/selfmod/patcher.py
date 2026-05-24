@@ -1,8 +1,6 @@
 from __future__ import annotations
+import difflib
 import json
-import os
-import subprocess
-import tempfile
 from pathlib import Path
 import shutil
 
@@ -117,19 +115,15 @@ class Patcher:
 
 
 def _make_diff(file_path: Path, original: str, new_content: str) -> str:
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
-        f.write(original)
-        old_path = f.name
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False, encoding="utf-8") as f:
-        f.write(new_content)
-        new_path = f.name
-    result = subprocess.run(
-        ["diff", "-u", old_path, new_path],
-        capture_output=True, text=True,
+    original_lines = original.splitlines(keepends=True)
+    new_lines = new_content.splitlines(keepends=True)
+    diff = difflib.unified_diff(
+        original_lines,
+        new_lines,
+        fromfile=str(file_path),
+        tofile=str(file_path),
     )
-    os.unlink(old_path)
-    os.unlink(new_path)
-    return result.stdout
+    return "".join(diff)
 
 
 def _next_patch_id() -> str:
