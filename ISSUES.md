@@ -1,13 +1,14 @@
 
 # ISSUES
-This is where the user places their thoughts about how the system is currently faring in order to highlight pain points, inadequacies, or other thoughts that an agent might care to tackle.
+This file is a template for recording project issues in a repository-safe way.
 
 ## CURRENT
 
-- The alpha doesn't compile the gathered information from the beta and gammas research into anything resembling a project. I think this is a harness and prompting inadequacy and not necessarily a fault of the model.
-- There is no coding/review acceptance loop
-- There is no method of using tools
-- There is no method of using skills
-- There is no method of exploring MCP servers
-- There is no method of hosting MCP server
-- There is no bash tool to enable any of the above - a harness primitive gap that needs to be closed
+_Add stable, project-level issues here._
+
+- Summary:
+- Impact:
+- Evidence:
+- Proposed next step:
+
+Personal or temporary working notes should be kept in a local, untracked file rather than committed here.

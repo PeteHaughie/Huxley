@@ -670,7 +670,7 @@ The harness loads skills from two directories, checked in order:
 
 If the same skill name exists in both, the huxley version wins. This prevents huxley-specific skills (which may depend on harness architecture) from polluting the shared `~/.agents/` namespace.
 
-Repo-root `ISSUES.md` and `IDEAS.md` are lightweight planning scratchpads for the local user. They capture current pain points and future ideas that an agent can consult when choosing or planning follow-up work.
+Optional local planning scratchpads can live at `~/.huxley/ISSUES.md` and `~/.huxley/IDEAS.md`. They capture current pain points and future ideas that an agent can consult when choosing or planning follow-up work, without requiring personal notes to be committed in the repository.
 
 ### Skill Format
 
