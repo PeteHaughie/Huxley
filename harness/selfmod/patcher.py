@@ -1,9 +1,8 @@
 from __future__ import annotations
-import os
-import subprocess
-import tempfile
+import difflib
+import json
 from pathlib import Path
-from typing import Optional
+import shutil
 
 PATCH_DIR = Path.home() / ".huxley" / "patches"
 
@@ -13,11 +12,16 @@ class Patcher:
         PATCH_DIR.mkdir(parents=True, exist_ok=True)
 
     def apply(self, file_path: str, new_content: str, dry_run: bool = True) -> dict:
-        target = Path(file_path).resolve()
-        if not target.exists():
-            return {"ok": False, "error": f"file not found: {file_path}"}
+        target = Path(file_path).expanduser().resolve()
+        if not target.is_file():
+            return {"ok": False, "error": f"file not found or not a regular file: {file_path}"}
+        if not self._path_allowed(target):
+            return {"ok": False, "error": f"target not allowed: {target}"}
 
-        original = target.read_text()
+        try:
+            original = target.read_text(encoding="utf-8")
+        except (UnicodeDecodeError, OSError) as e:
+            return {"ok": False, "error": f"read error: {e}"}
         if original == new_content:
             return {"ok": True, "changed": False}
 
@@ -27,49 +31,127 @@ class Patcher:
                 "ok": True,
                 "changed": True,
                 "patch_id": patch_id,
-                "diff": _make_diff(target, original, new_content),
+                "diff": _make_diff(file_path, original, new_content),
             }
 
-        import shutil
-        backup = PATCH_DIR / f"{patch_id}_{target.name}.bak"
-        shutil.copy2(target, backup)
+        try:
+            backup = PATCH_DIR / f"{patch_id}_{target.name}.bak"
+            shutil.copy2(target, backup)
 
-        target.write_text(new_content)
+            meta = PATCH_DIR / f"{patch_id}.meta"
+            meta.write_text(json.dumps({"original_path": str(target)}), encoding="utf-8")
+
+            target.write_text(new_content, encoding="utf-8")
+        except OSError as e:
+            bak = PATCH_DIR / f"{patch_id}_{target.name}.bak"
+            if bak.exists():
+                try:
+                    shutil.copy2(bak, target)
+                    bak.unlink()
+                except OSError:
+                    pass
+            meta = PATCH_DIR / f"{patch_id}.meta"
+            try:
+                meta.unlink()
+            except OSError:
+                pass
+            return {"ok": False, "error": f"write error: {e}"}
         return {
             "ok": True,
             "changed": True,
             "patch_id": patch_id,
             "backup": str(backup),
-            "diff": _make_diff(target, original, new_content),
+            "diff": _make_diff(file_path, original, new_content),
         }
 
+    @staticmethod
+    def _project_root() -> Path:
+        return Path(__file__).resolve().parents[2]
+
+    @staticmethod
+    def _path_allowed(p: Path) -> bool:
+        return any(
+            p.is_relative_to(root.resolve())
+            for root in (Patcher._project_root(), Path.home() / ".huxley")
+        )
+
+    @staticmethod
+    def path_allowed(path: str | Path) -> bool:
+        try:
+            resolved = Path(path).expanduser().resolve()
+        except OSError:
+            return False
+        return Patcher._path_allowed(resolved)
+
+    @staticmethod
+    def _resolve_allowed_file(path: Path) -> Path | None:
+        try:
+            resolved = path.expanduser().resolve()
+        except OSError:
+            return None
+        if not resolved.is_file() or not Patcher._path_allowed(resolved):
+            return None
+        return resolved
+
     def rollback(self, patch_id: str):
-        for bak in PATCH_DIR.glob(f"{patch_id}_*.bak"):
-            target_name = bak.name.split("_", 1)[1].replace(".bak", "")
-            targets = list(PATCH_DIR.parent.glob(f"**/{target_name}"))
-            for t in targets:
-                shutil.copy2(bak, t)
+        if "/" in patch_id or "\\" in patch_id or ".." in patch_id or "\0" in patch_id or any(c in patch_id for c in "*?["):
+            return False
+        meta = PATCH_DIR / f"{patch_id}.meta"
+        if meta.exists():
+            try:
+                data = json.loads(meta.read_text(encoding="utf-8"))
+                if not isinstance(data, dict):
+                    return False
+                original_path = data.get("original_path")
+                if not isinstance(original_path, str):
+                    return False
+                orig = self._resolve_allowed_file(Path(original_path))
+                if orig is None:
+                    return False
+                bak = PATCH_DIR / f"{patch_id}_{orig.name}.bak"
+                if bak.is_file():
+                    shutil.copy2(bak, orig)
+                    bak.unlink()
+                    meta.unlink()
+                    return True
+            except (KeyError, ValueError, OSError, UnicodeDecodeError):
+                pass
+            return False
+        # Legacy fallback: no .meta file — search known roots by filename
+        baks = sorted(PATCH_DIR.glob(f"{patch_id}_*.bak"))
+        if len(baks) == 1:
+            bak = baks[0]
+            target_name = bak.name.split("_", 1)[1]
+            if target_name.endswith(".bak"):
+                target_name = target_name[:-4]
+            matches: list[Path] = []
+            for d in (self._project_root(), Path.home() / ".huxley"):
+                for candidate in d.rglob(target_name):
+                    target = self._resolve_allowed_file(candidate)
+                    if target is not None and target not in matches:
+                        matches.append(target)
+            if len(matches) == 1:
+                target = matches[0]
+                if not bak.is_file():
+                    return False
+                shutil.copy2(bak, target)
                 bak.unlink()
                 return True
         return False
 
 
-def _make_diff(file_path: Path, original: str, new_content: str) -> str:
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(original)
-        old_path = f.name
-    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
-        f.write(new_content)
-        new_path = f.name
-    result = subprocess.run(
-        ["diff", "-u", old_path, new_path],
-        capture_output=True, text=True,
+def _make_diff(file_path: str | Path, original: str, new_content: str) -> str:
+    original_lines = original.splitlines(keepends=True)
+    new_lines = new_content.splitlines(keepends=True)
+    diff = difflib.unified_diff(
+        original_lines,
+        new_lines,
+        fromfile=str(file_path),
+        tofile=str(file_path),
     )
-    os.unlink(old_path)
-    os.unlink(new_path)
-    return result.stdout
+    return "".join(diff)
 
 
 def _next_patch_id() -> str:
     import uuid
-    return str(uuid.uuid4())[:12]
+    return uuid.uuid4().hex[:12]

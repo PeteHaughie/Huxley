@@ -13,7 +13,6 @@ MULTICAST_PORT = 43210
 ANNOUNCE_INTERVAL = 30
 BUFFER_SIZE = 2048
 
-
 def _build_announce(hostname: str, daemon_port: int, castes: str = "αβγ", load: float = 0.0, version: str = "0.1.0", instance_id: str = "") -> bytes:
     payload = {
         "type": "huxley_announce",
@@ -278,8 +277,8 @@ class DiscoveryService:
             except OSError:
                 pass
 
-    def _refresh_interfaces(self, force: bool = False) -> bool:
-        interfaces = _lan_interfaces()
+    def _refresh_interfaces(self, force: bool = False, interfaces: list[dict] | None = None) -> bool:
+        interfaces = interfaces if interfaces is not None else _lan_interfaces()
         ips = [iface["ip"] for iface in interfaces]
         bcasts = [iface["bcast"] for iface in interfaces if iface.get("bcast")]
         if not force and ips == self._local_ips and bcasts == self._bcasts:

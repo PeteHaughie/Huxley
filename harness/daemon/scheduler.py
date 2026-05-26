@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import time
 import uuid
 import threading
@@ -159,6 +160,7 @@ class SchedulerEngine:
         self._discovery: Optional[DiscoveryService] = None
         self._action_handlers: dict[str, Callable] = {
             "post_to_board": self._action_post_to_board,
+            "self_mod": self._action_self_mod,
         }
         self._peer_failures: dict[str, float] = {}
         self._peer_selection_cursor: dict[str, str] = {}
@@ -166,6 +168,8 @@ class SchedulerEngine:
         self._peer_activity_lock = threading.Lock()
         self._peer_activity_ttl = 120
         self._inference_lock = threading.Lock()
+        self._pending_reload = False
+        self._reload_handler_installed = False
 
     @property
     def running(self) -> bool:
@@ -182,6 +186,18 @@ class SchedulerEngine:
             self._discovery.start()
         self._thread = threading.Thread(target=self._tick_loop, daemon=True)
         self._thread.start()
+
+    def _ensure_reload_handler(self):
+        if self._reload_handler_installed:
+            return
+        try:
+            import signal
+            if hasattr(signal, 'SIGHUP'):
+                from harness.selfmod.restart import register_reload_handler
+                register_reload_handler()
+                self._reload_handler_installed = True
+        except Exception as e:
+            print(f"γ|scheduler|reload_handler_err|{e}", file=sys.stderr, flush=True)
 
     def stop(self):
         self._running = False
@@ -665,7 +681,8 @@ class SchedulerEngine:
         board = JobBoard()
         now = datetime.now(timezone.utc)
         changed = False
-        for s in self.list_schedules():
+        schedules = self.list_schedules()
+        for s in schedules:
             if not s.enabled or not s.next_fire:
                 continue
             wtype = s.when.get("type", "interval")
@@ -684,10 +701,21 @@ class SchedulerEngine:
                 continue
             self._fire(s)
             s.last_fired = now.isoformat()
-            s.next_fire = _calc_next_fire(s.when)
+            s.next_fire = _calc_next_fire(s.when, now.isoformat())
             changed = True
         if changed:
-            _save_schedules(self.list_schedules())
+            _save_schedules(schedules)
+        if self._pending_reload:
+            try:
+                import signal, os
+                if self._reload_handler_installed and hasattr(signal, 'SIGHUP'):
+                    os.kill(os.getpid(), signal.SIGHUP)
+                elif not self._reload_handler_installed:
+                    print("γ|scheduler|reload_skip|handler_not_installed", flush=True)
+            except Exception as e:
+                print(f"γ|scheduler|reload_err|{e}", flush=True)
+            finally:
+                self._pending_reload = False
 
     def _fire(self, schedule: Schedule):
         handler = self._action_handlers.get(schedule.action.get("type"))
@@ -715,4 +743,74 @@ class SchedulerEngine:
             title=a.get("title", schedule.title or "scheduled task"),
             prompt=a.get("prompt", ""),
         )
+        board.create(t)
+
+    def _action_self_mod(self, schedule: Schedule):
+        a = schedule.action
+        file_key = a.get("file")
+        content = a.get("content")
+        auto_apply = bool(a.get("auto_apply", False))
+
+        if not file_key:
+            raise RuntimeError(f"self_mod: file key is missing from action: {file_key}")
+        if not isinstance(file_key, str):
+            raise RuntimeError(f"self_mod: file key must be a string, got {type(file_key).__name__}: {file_key!r}")
+
+        project_root = Path(__file__).resolve().parents[2]
+        file_path = Path(file_key).expanduser()
+        if file_path.is_absolute():
+            target = file_path.resolve()
+        else:
+            target = (project_root / file_path).resolve()
+        if not target.is_file():
+            raise RuntimeError(f"self_mod: file not found or not a regular file: {target}")
+
+        if not isinstance(content, str) or not content.strip():
+            raise RuntimeError(f"self_mod: empty content for {target}")
+        from harness.selfmod.patcher import Patcher
+        if not Patcher.path_allowed(target):
+            raise RuntimeError(f"self_mod: {target} not in allowed directory (must be under project root or ~/.huxley)")
+
+        content = content or ""
+        title = a.get("title", schedule.title or f"selfmod:{file_key}")
+
+        from harness.selfmod.validator import validate_patch
+
+        target_str = str(target)
+        patcher = Patcher()
+        is_py = target.suffix == ".py"
+        val = validate_patch(target_str, content) if is_py else {"ok": True, "errors": [], "warnings": []}
+        if auto_apply and val.get("ok") and not val.get("warnings"):
+            res = patcher.apply(target_str, content, dry_run=False)
+            if res.get("ok"):
+                if res.get("changed"):
+                    self._ensure_reload_handler()
+                    if self._reload_handler_installed:
+                        self._pending_reload = True
+                    else:
+                        print("γ|scheduler|reload_skip|handler_not_installed", flush=True)
+                else:
+                    print(f"γ|scheduler|self_mod|no_changes|{target_str}", flush=True)
+            else:
+                raise RuntimeError(f"self_mod: apply failed: {res.get('error', 'unknown')}")
+            return
+
+        # post dry-run diff + validator report to board for review
+        dry = patcher.apply(target_str, content, dry_run=True)
+        diff = dry.get("diff", "")
+        dry_err = dry.get("error", "")
+        errors = val.get("errors", [])
+        warnings = val.get("warnings", [])
+        if not diff and not errors and not warnings and not dry_err:
+            print(f"γ|scheduler|self_mod|no_changes|{target_str}", flush=True)
+            return
+        report = diff or ""
+        if dry_err:
+            report += f"\nERROR: {dry_err}"
+        for e in errors:
+            report += f"\nERROR: {e}"
+        for w in warnings:
+            report += f"\nWARN: {w}"
+        board = JobBoard()
+        t = Task(level=Level.TASK, title=title, prompt=report)
         board.create(t)

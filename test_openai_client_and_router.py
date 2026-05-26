@@ -126,7 +126,7 @@ class RouterAliasCollisionTests(unittest.TestCase):
         fake_gamma_module.Gamma = FakeGamma
 
         with (
-            patch("harness.comms.router.load_config", return_value={"api": {"alpha_model_id": "beta", "beta_model_id": "gemma-4-e4b"}}),
+            patch("harness.config.load_config", return_value={"api": {"alpha_model_id": "beta", "beta_model_id": "gemma-4-e4b"}}),
             patch.dict(
                 sys.modules,
                 {
