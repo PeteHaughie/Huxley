@@ -176,6 +176,39 @@ class TestPatchCLI(unittest.TestCase):
                 files = [n for n in os.listdir(board_dir) if n.endswith('.json')]
             self.assertTrue(files, "board task not created")
 
+    def test_patch_dry_run_marks_preview_instead_of_patch_id(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = td
+            os.makedirs(os.path.join(home, ".huxley"), exist_ok=True)
+            fpath = os.path.join(home, ".huxley", "dummy.py")
+            with open(fpath, "w") as f:
+                f.write("print(1)\n")
+
+            out, _, _ = _run_cli(home, "patch", fpath, stdin="print(2)\n")
+            self.assertIn("γ|patch|ok|preview", out)
+            self.assertNotIn("γ|patch|ok|preview|", out)
+
+    def test_patch_rollback_rejects_ambiguous_legacy_backups(self):
+        with tempfile.TemporaryDirectory() as td:
+            home = td
+            patches = os.path.join(home, ".huxley", "patches")
+            target_dir = os.path.join(home, ".huxley", "somepath")
+            os.makedirs(patches, exist_ok=True)
+            os.makedirs(target_dir, exist_ok=True)
+            pid = "legacymulti01"
+            with open(os.path.join(patches, f"{pid}_first.py.bak"), "w") as f:
+                f.write("# first backup\n")
+            with open(os.path.join(patches, f"{pid}_second.py.bak"), "w") as f:
+                f.write("# second backup\n")
+            with open(os.path.join(target_dir, "first.py"), "w") as f:
+                f.write("# original first\n")
+            with open(os.path.join(target_dir, "second.py"), "w") as f:
+                f.write("# original second\n")
+
+            out, _, rc = _run_cli(home, "patch", "--rollback", pid, expect_fail=True)
+            self.assertNotEqual(rc, 0)
+            self.assertIn(f"γ|patch|rollback|not_found|{pid}", out)
+
 
 if __name__ == "__main__":
     unittest.main()

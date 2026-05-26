@@ -186,7 +186,11 @@ def cmd_patch(args):
     result = patcher.apply(args.file, content, dry_run=args.dry_run)
     ok = result.get("ok", False)
     err = result.get("error", "")
-    print(f"γ|patch|{'ok' if ok else 'err'}|{result.get('patch_id','')}", flush=True)
+    status = "ok" if ok else "err"
+    if ok and args.dry_run and result.get("patch_id"):
+        print("γ|patch|ok|preview", flush=True)
+    else:
+        print(f"γ|patch|{status}|{result.get('patch_id', '')}", flush=True)
     if err:
         print(f"γ|patch|error|{err}", flush=True)
         return 1

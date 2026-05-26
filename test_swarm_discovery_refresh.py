@@ -14,13 +14,13 @@ class DiscoveryRefreshTests(unittest.TestCase):
         second_sock = Mock()
 
         with patch.object(service, "_make_socket", side_effect=[first_sock, second_sock]):
-            service._refresh_interfaces(force=True, interfaces=[
+            self.assertTrue(service._refresh_interfaces(force=True, interfaces=[
                 {"ip": "192.168.1.10", "bcast": "192.168.1.255"},
-            ])
+            ]))
             self.assertEqual(service._local_ips, ["192.168.1.10"])
-            service._refresh_interfaces(force=True, interfaces=[
+            self.assertTrue(service._refresh_interfaces(force=True, interfaces=[
                 {"ip": "192.168.1.11", "bcast": "192.168.1.255"},
-            ])
+            ]))
             self.assertEqual(service._local_ips, ["192.168.1.11"])
         self.assertEqual(service._bcasts, ["192.168.1.255"])
         self.assertIs(service._sock, second_sock)

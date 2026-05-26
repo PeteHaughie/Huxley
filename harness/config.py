@@ -193,6 +193,8 @@ def _repair_legacy_paths(cfg: dict) -> bool:
     for key, value in list(cfg.items()):
         cfg[key] = _repair_value(value)
     return repaired
+
+
 def save_config(cfg: dict):
     ensure_huxley_dirs()
     with open(DEFAULT_CONFIG_PATH, "w") as f:

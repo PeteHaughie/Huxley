@@ -118,8 +118,8 @@ class Patcher:
                 pass
             return False
         # Legacy fallback: no .meta file — search known roots by filename
-        baks = list(PATCH_DIR.glob(f"{patch_id}_*.bak"))
-        if baks:
+        baks = sorted(PATCH_DIR.glob(f"{patch_id}_*.bak"))
+        if len(baks) == 1:
             bak = baks[0]
             target_name = bak.name.split("_", 1)[1]
             if target_name.endswith(".bak"):

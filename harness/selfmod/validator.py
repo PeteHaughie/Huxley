@@ -3,16 +3,15 @@ import py_compile
 import tempfile
 import ast
 from pathlib import Path
-from typing import Dict, List
 
 
-def validate_patch(file_path: str, new_content: str) -> Dict:
+def validate_patch(file_path: str, new_content: str) -> dict[str, object]:
     """Run lightweight validators on the proposed patch content.
 
     Returns a dict with keys: ok(bool), errors(list), warnings(list).
     """
-    errors: List[str] = []
-    warnings: List[str] = []
+    errors: list[str] = []
+    warnings: list[str] = []
 
     # Syntax check via ast.parse
     syntax_ok = True
