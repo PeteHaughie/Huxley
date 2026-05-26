@@ -76,6 +76,14 @@ class Patcher:
         )
 
     @staticmethod
+    def path_allowed(path: str | Path) -> bool:
+        try:
+            resolved = Path(path).expanduser().resolve()
+        except OSError:
+            return False
+        return Patcher._path_allowed(resolved)
+
+    @staticmethod
     def _resolve_allowed_file(path: Path) -> Path | None:
         try:
             resolved = path.expanduser().resolve()

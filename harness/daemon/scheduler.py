@@ -179,6 +179,17 @@ class SchedulerEngine:
         if self._running:
             return
         self._running = True
+        cfg = load_config()
+        if cfg.get("swarm", {}).get("enabled", True):
+            port = self._daemon_port or cfg.get("daemon", {}).get("port", 8083)
+            self._discovery = DiscoveryService(port, _peer_table)
+            self._discovery.start()
+        self._thread = threading.Thread(target=self._tick_loop, daemon=True)
+        self._thread.start()
+
+    def _ensure_reload_handler(self):
+        if self._reload_handler_installed:
+            return
         try:
             import signal
             if hasattr(signal, 'SIGHUP'):
@@ -187,13 +198,6 @@ class SchedulerEngine:
                 self._reload_handler_installed = True
         except Exception as e:
             print(f"γ|scheduler|reload_handler_err|{e}", file=sys.stderr, flush=True)
-        cfg = load_config()
-        if cfg.get("swarm", {}).get("enabled", True):
-            port = self._daemon_port or cfg.get("daemon", {}).get("port", 8083)
-            self._discovery = DiscoveryService(port, _peer_table)
-            self._discovery.start()
-        self._thread = threading.Thread(target=self._tick_loop, daemon=True)
-        self._thread.start()
 
     def stop(self):
         self._running = False
@@ -764,7 +768,7 @@ class SchedulerEngine:
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError(f"self_mod: empty content for {target}")
         from harness.selfmod.patcher import Patcher
-        if not Patcher._path_allowed(target):
+        if not Patcher.path_allowed(target):
             raise RuntimeError(f"self_mod: {target} not in allowed directory (must be under project root or ~/.huxley)")
 
         content = content or ""
@@ -780,7 +784,11 @@ class SchedulerEngine:
             res = patcher.apply(target_str, content, dry_run=False)
             if res.get("ok"):
                 if res.get("changed"):
-                    self._pending_reload = True
+                    self._ensure_reload_handler()
+                    if self._reload_handler_installed:
+                        self._pending_reload = True
+                    else:
+                        print("γ|scheduler|reload_skip|handler_not_installed", flush=True)
                 else:
                     print(f"γ|scheduler|self_mod|no_changes|{target_str}", flush=True)
             else:
