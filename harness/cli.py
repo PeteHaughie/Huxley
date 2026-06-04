@@ -187,7 +187,9 @@ def cmd_patch(args):
     ok = result.get("ok", False)
     err = result.get("error", "")
     status = "ok" if ok else "err"
-    if ok and args.dry_run and result.get("patch_id"):
+    if ok and not result.get("changed"):
+        print("γ|patch|ok|no_changes", flush=True)
+    elif ok and args.dry_run and result.get("patch_id"):
         print("γ|patch|ok|preview", flush=True)
     else:
         print(f"γ|patch|{status}|{result.get('patch_id', '')}", flush=True)
