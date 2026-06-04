@@ -206,7 +206,11 @@ class SchedulerSelfModTests(unittest.TestCase):
         )
         self.engine._action_self_mod(schedule)
         mock_patcher.apply.assert_called_once()
-        self.assertTrue(self.engine._pending_reload)
+        import signal
+        if hasattr(signal, "SIGHUP"):
+            self.assertTrue(self.engine._pending_reload)
+        else:
+            self.assertFalse(self.engine._pending_reload)
 
     @patch("harness.selfmod.validator.validate_patch")
     @patch("harness.selfmod.patcher.Patcher")
