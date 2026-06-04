@@ -130,6 +130,9 @@ def cmd_cloud(args):
 
 
 def cmd_patch(args):
+    if getattr(args, "review", False) and not args.dry_run:
+        print("γ|patch|err|--review cannot be combined with --apply", flush=True)
+        return 1
     if getattr(args, "list", False) or getattr(args, "rollback", None):
         if args.file or getattr(args, "review", False) or not args.dry_run:
             print("γ|patch|err|--list/--rollback cannot be combined with --apply, --review, or <file>", flush=True)
