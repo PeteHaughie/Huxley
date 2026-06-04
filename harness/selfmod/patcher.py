@@ -14,10 +14,10 @@ class Patcher:
 
     def apply(self, file_path: str, new_content: str, dry_run: bool = True) -> dict:
         target = Path(file_path).expanduser().resolve()
-        if not target.is_file():
-            return {"ok": False, "error": f"file not found or not a regular file: {file_path}"}
         if not self._path_allowed(target):
             return {"ok": False, "error": f"target not allowed: {target}"}
+        if not target.is_file():
+            return {"ok": False, "error": f"file not found or not a regular file: {file_path}"}
 
         try:
             original = target.read_text(encoding="utf-8")
@@ -144,11 +144,12 @@ class Patcher:
 def _make_diff(file_path: str | Path, original: str, new_content: str) -> str:
     original_lines = original.splitlines(keepends=True)
     new_lines = new_content.splitlines(keepends=True)
+    display_path = str(file_path)
     diff = difflib.unified_diff(
         original_lines,
         new_lines,
-        fromfile=str(file_path),
-        tofile=str(file_path),
+        fromfile=f"a/{display_path}",
+        tofile=f"b/{display_path}",
     )
     return "".join(diff)
 

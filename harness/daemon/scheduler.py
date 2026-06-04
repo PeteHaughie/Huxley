@@ -765,14 +765,14 @@ class SchedulerEngine:
             target = file_path.resolve()
         else:
             target = (project_root / file_path).resolve()
+        from harness.selfmod.patcher import Patcher
+        if not Patcher.path_allowed(target):
+            raise RuntimeError(f"self_mod: {target} not in allowed directory (must be under project root or ~/.huxley)")
         if not target.is_file():
             raise RuntimeError(f"self_mod: file not found or not a regular file: {target}")
 
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError(f"self_mod: empty content for {target}")
-        from harness.selfmod.patcher import Patcher
-        if not Patcher.path_allowed(target):
-            raise RuntimeError(f"self_mod: {target} not in allowed directory (must be under project root or ~/.huxley)")
 
         content = content or ""
         title = a.get("title", schedule.title or f"selfmod:{file_key}")
