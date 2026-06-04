@@ -179,6 +179,7 @@ class SchedulerEngine:
         if self._running:
             return
         self._running = True
+        self._ensure_reload_handler()
         cfg = load_config()
         if cfg.get("swarm", {}).get("enabled", True):
             port = self._daemon_port or cfg.get("daemon", {}).get("port", 8083)
@@ -189,6 +190,8 @@ class SchedulerEngine:
 
     def _ensure_reload_handler(self):
         if self._reload_handler_installed:
+            return
+        if threading.current_thread() is not threading.main_thread():
             return
         try:
             import signal

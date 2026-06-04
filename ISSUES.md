@@ -11,4 +11,4 @@ _Add stable, project-level issues here._
 - Evidence:
 - Proposed next step:
 
-Personal or temporary working notes should be kept in a local, untracked file rather than committed here.
+Keep this file as shared, project-level issue tracking content.

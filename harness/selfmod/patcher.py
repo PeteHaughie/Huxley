@@ -1,5 +1,6 @@
 from __future__ import annotations
 import difflib
+import glob
 import json
 from pathlib import Path
 import shutil
@@ -126,7 +127,7 @@ class Patcher:
                 target_name = target_name[:-4]
             matches: list[Path] = []
             for d in (self._project_root(), Path.home() / ".huxley"):
-                for candidate in d.rglob(target_name):
+                for candidate in d.rglob(glob.escape(target_name)):
                     target = self._resolve_allowed_file(candidate)
                     if target is not None and target not in matches:
                         matches.append(target)

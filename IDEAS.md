@@ -4,5 +4,5 @@ This is where the user will write ideas that occur to them. An agent may wish to
 
 ## CURRENT
 
-- Keep personal/current ideas in a local or otherwise untracked copy of this file.
-- Replace this placeholder locally with your own notes as needed.
+- Add shared project ideas here.
+- Replace this placeholder with repository-relevant ideas as needed.
