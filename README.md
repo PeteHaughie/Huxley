@@ -544,11 +544,20 @@ huxley infer α "what should I work on next?"
 # Route through cloud endpoint (requires cloud config)
 huxley cloud "explain quantum computing"
 
-# Dry-run a self-mod patch
-huxley patch harness/cli.py
+# Dry-run a self-mod patch (pipe new content via stdin)
+echo "..." | huxley patch harness/cli.py
 
-# Apply a self-mod patch
-huxley patch --apply harness/config.py
+# Apply a self-mod patch (pipe new content via stdin)
+echo "..." | huxley patch --apply harness/config.py
+
+# Post a patch diff + validator report to the board for review
+echo "..." | huxley patch --review harness/daemon/scheduler.py
+
+# List existing patches
+huxley patch --list
+
+# Rollback a patch by ID
+huxley patch --rollback <patch_id>
 ```
 
 ## Commands
@@ -566,7 +575,9 @@ huxley patch --apply harness/config.py
 | `huxley modules` | List all harness modules |
 | `huxley models` | List GGUF models in `~/.huxley/models/` |
 | `huxley cloud <prompt>` | Route prompt via cloud endpoint |
-| `huxley patch [--apply] <file>` | Dry-run or apply a self-mod patch |
+| `huxley patch --list` | List known patches/backups |
+| `huxley patch --rollback <id>` | Roll back a patch by ID |
+| `echo "..." \| huxley patch [--apply\|--review] <file>` | Create, apply, or review a self-mod patch using stdin content |
 | `huxley compact [--caste]` | Compact session journal via summarisation |
 | `huxley daemon start\|stop\|status` | Manage huxley background daemon |
 | `huxley schedule list\|add\|remove\|history` | Manage scheduled tasks |
@@ -658,6 +669,8 @@ The harness loads skills from two directories, checked in order:
 2. **`~/.agents/skills/`** — Generic shared skills (compatible with other agent frameworks)
 
 If the same skill name exists in both, the huxley version wins. This prevents huxley-specific skills (which may depend on harness architecture) from polluting the shared `~/.agents/` namespace.
+
+Optional local planning scratchpads can live at `~/.huxley/ISSUES.md` and `~/.huxley/IDEAS.md` (see the repo-root `ISSUES.md` and `IDEAS.md` templates). They capture current pain points and future ideas that an agent can consult when choosing or planning follow-up work, without requiring personal notes to be committed in the repository.
 
 ### Skill Format
 

@@ -13,23 +13,18 @@ class DiscoveryRefreshTests(unittest.TestCase):
         first_sock = Mock()
         second_sock = Mock()
 
-        with patch(
-            "harness.swarm.discovery._lan_interfaces",
-            side_effect=[
-                [{"ip": "192.168.1.10", "bcast": "192.168.1.255"}],
-                [{"ip": "192.168.1.11", "bcast": "192.168.1.255"}],
-            ],
-        ), patch.object(service, "_make_socket", side_effect=[first_sock, second_sock]):
-            self.assertTrue(service._refresh_interfaces(force=True))
+        with patch.object(service, "_make_socket", side_effect=[first_sock, second_sock]):
+            self.assertTrue(service._refresh_interfaces(force=True, interfaces=[
+                {"ip": "192.168.1.10", "bcast": "192.168.1.255"},
+            ]))
             self.assertEqual(service._local_ips, ["192.168.1.10"])
-            self.assertEqual(service._bcasts, ["192.168.1.255"])
-            self.assertIs(service._sock, first_sock)
-
-            self.assertTrue(service._refresh_interfaces())
+            self.assertTrue(service._refresh_interfaces(force=True, interfaces=[
+                {"ip": "192.168.1.11", "bcast": "192.168.1.255"},
+            ]))
             self.assertEqual(service._local_ips, ["192.168.1.11"])
-            self.assertEqual(service._bcasts, ["192.168.1.255"])
-            self.assertIs(service._sock, second_sock)
-            first_sock.close.assert_called_once()
+        self.assertEqual(service._bcasts, ["192.168.1.255"])
+        self.assertIs(service._sock, second_sock)
+        first_sock.close.assert_called_once()
 
 
 if __name__ == "__main__":

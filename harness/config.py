@@ -184,11 +184,17 @@ def _repair_legacy_paths(cfg: dict) -> bool:
                 if value.startswith(legacy):
                     repaired = True
                     return replacement + value[len(legacy):]
+            # Also handle absolute filesystem paths containing /.monster/ from any home directory
+            if value.startswith("/") and "/.monster/" in value:
+                repaired = True
+                return value.replace("/.monster/", "/.huxley/", 1)
         return value
 
     for key, value in list(cfg.items()):
         cfg[key] = _repair_value(value)
     return repaired
+
+
 def save_config(cfg: dict):
     ensure_huxley_dirs()
     with open(DEFAULT_CONFIG_PATH, "w") as f:

@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from harness.comms.router import OpenAIRequestError, Router
-from harness.daemon.scheduler import SchedulerEngine
+from harness.daemon.scheduler import SchedulerEngine, Schedule
 
 
 class SchedulerRouterReuseTests(unittest.TestCase):
@@ -36,7 +36,7 @@ class SchedulerRouterReuseTests(unittest.TestCase):
 
 
 class RouterOpenAIModelTests(unittest.TestCase):
-    @patch("harness.comms.router.load_config", return_value={"api": {"alpha_model_id": 123, "beta_model_id": ""}})
+    @patch("harness.config.load_config", return_value={"api": {"alpha_model_id": 123, "beta_model_id": ""}})
     @patch("harness.caste.gamma.Gamma")
     @patch("harness.caste.beta.Beta")
     @patch("harness.caste.alpha.Alpha")
@@ -67,7 +67,7 @@ class RouterOpenAIModelTests(unittest.TestCase):
         fake_gamma_module = types.ModuleType("harness.caste.gamma")
         fake_gamma_module.Gamma = lambda: object()
         with (
-            patch("harness.comms.router.load_config", return_value={}),
+            patch("harness.config.load_config", return_value={}),
             patch.dict(
                 sys.modules,
                 {
@@ -127,7 +127,7 @@ class RouterOpenAIModelTests(unittest.TestCase):
         fake_gamma_module.Gamma = FakeGamma
 
         with (
-            patch("harness.comms.router.load_config", return_value={}),
+            patch("harness.config.load_config", return_value={}),
             patch.dict(
                 sys.modules,
                 {
@@ -146,6 +146,82 @@ class RouterOpenAIModelTests(unittest.TestCase):
 
         self.assertEqual(str(ctx.exception), "invalid response from alpha model backend")
         self.assertEqual(router._beta.calls, 0)
+
+
+class SchedulerSelfModTests(unittest.TestCase):
+    def setUp(self):
+        self.engine = SchedulerEngine()
+
+    def test_self_mod_rejects_path_outside_allowed(self):
+        import tempfile, os
+        with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as f:
+            outside = f.name
+        try:
+            schedule = Schedule(
+                when={"type": "interval", "every": 3600},
+                action={"type": "self_mod", "file": outside, "content": "x=1"},
+            )
+            with self.assertRaises(RuntimeError) as ctx:
+                self.engine._action_self_mod(schedule)
+            self.assertIn("not in allowed directory", str(ctx.exception))
+        finally:
+            os.unlink(outside)
+
+    @patch("harness.daemon.scheduler.JobBoard")
+    @patch("harness.selfmod.validator.validate_patch")
+    @patch("harness.selfmod.patcher.Patcher")
+    def test_self_mod_posts_board_on_validation_failure(self, MockPatcher, mock_validate, MockBoard):
+        mock_validate.return_value = {"ok": False, "errors": ["syntax error"], "warnings": []}
+        MockPatcher.return_value.apply.return_value = {"ok": True, "changed": True, "diff": "--- a\n+++ b\n"}
+        schedule = Schedule(
+            when={"type": "interval", "every": 3600},
+            action={"type": "self_mod", "file": __file__, "content": "bad code"},
+        )
+        self.engine._action_self_mod(schedule)
+        MockBoard.return_value.create.assert_called_once()
+
+    @patch("harness.daemon.scheduler.JobBoard")
+    @patch("harness.selfmod.validator.validate_patch")
+    @patch("harness.selfmod.patcher.Patcher")
+    def test_self_mod_skips_board_when_no_changes(self, MockPatcher, mock_validate, MockBoard):
+        mock_validate.return_value = {"ok": True, "errors": [], "warnings": []}
+        MockPatcher.return_value.apply.return_value = {"ok": True, "changed": False}
+        schedule = Schedule(
+            when={"type": "interval", "every": 3600},
+            action={"type": "self_mod", "file": __file__, "content": "x=1"},
+        )
+        self.engine._action_self_mod(schedule)
+        MockBoard.return_value.create.assert_not_called()
+
+    @patch("harness.selfmod.restart.register_reload_handler")
+    @patch("harness.selfmod.validator.validate_patch")
+    @patch("harness.selfmod.patcher.Patcher")
+    def test_self_mod_auto_apply_calls_apply(self, MockPatcher, mock_validate, _mock_reload):
+        mock_validate.return_value = {"ok": True, "errors": [], "warnings": []}
+        mock_patcher = MockPatcher.return_value
+        mock_patcher.apply.return_value = {"ok": True, "changed": True}
+        schedule = Schedule(
+            when={"type": "interval", "every": 3600},
+            action={"type": "self_mod", "file": __file__, "content": "print('new')\n", "auto_apply": True},
+        )
+        self.engine._action_self_mod(schedule)
+        mock_patcher.apply.assert_called_once()
+        import signal
+        if hasattr(signal, "SIGHUP"):
+            self.assertTrue(self.engine._pending_reload)
+        else:
+            self.assertFalse(self.engine._pending_reload)
+
+    @patch("harness.selfmod.validator.validate_patch")
+    @patch("harness.selfmod.patcher.Patcher")
+    def test_self_mod_rejects_empty_content(self, MockPatcher, mock_validate):
+        schedule = Schedule(
+            when={"type": "interval", "every": 3600},
+            action={"type": "self_mod", "file": __file__, "content": ""},
+        )
+        with self.assertRaises(RuntimeError) as ctx:
+            self.engine._action_self_mod(schedule)
+        self.assertIn("empty content", str(ctx.exception))
 
 
 if __name__ == "__main__":
