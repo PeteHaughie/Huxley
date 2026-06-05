@@ -746,7 +746,13 @@ class SchedulerEngine:
             steps = [f"{task.prompt or task.title} (step 1)"]
         for step in steps:
             board.create(
-                Task(level=Level.UNIT, title=step[:80], prompt=step, parent_id=task.id)
+                Task(
+                    level=Level.UNIT,
+                    title=step[:80],
+                    prompt=step,
+                    parent_id=task.id,
+                    tags=["tools"] if "tools" in task.tags else [],
+                )
             )
         task.tags = [t for t in task.tags if t != "reviewed"] + ["refined"]
         task.transition(State.IN_PROGRESS)
