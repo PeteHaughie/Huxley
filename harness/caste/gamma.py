@@ -6,7 +6,7 @@ from harness.server.inference import OpenAICompatibleClient
 
 class Gamma(CasteBase):
     caste = Caste.GAMMA
-    supports_tools = False
+    supports_tools = True
 
     def __init__(self, cfg: dict | None = None, tool_service=None):
         from harness.config import load_config

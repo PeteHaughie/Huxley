@@ -349,7 +349,7 @@ prompt + tools: True
     → if max_turns exhausted or text response: return
 ```
 
-Tool support is currently available for Alpha (Gemma 4 / llama.cpp with `--tool-call`) and Gamma (Apfel v1.3.4+ OpenAI-compatible tool mode). Beta (MLX) is text-only.
+Tool support is currently available for Alpha (Gemma 4 / llama.cpp with `--tool-call`), Beta (llama.cpp), and Gamma (Apfel v1.3.4+ OpenAI-compatible tool mode).
 
 ## Apfel Auto-Start
 

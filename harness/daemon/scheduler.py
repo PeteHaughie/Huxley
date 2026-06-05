@@ -308,8 +308,6 @@ class SchedulerEngine:
 
         caste_map = {"epic": Caste.ALPHA, "task": Caste.BETA, "unit": Caste.GAMMA}
         caste = caste_map[level]
-        if use_tools and caste == Caste.GAMMA:
-            caste = Caste.BETA
         payload: dict = {"prompt": prompt}
         with self._inference_lock:
             if self._router is None:

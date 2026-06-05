@@ -1,5 +1,6 @@
 import tempfile
 from pathlib import Path
+from unittest.mock import patch
 
 from harness.tool.builtins import filesystem, search, shell
 from harness.tool.decorator import clear_registered_tools
@@ -173,6 +174,19 @@ def test_grep_no_matches(tmp_path: Path):
     f.write_text("nothing here")
     result = search.grep("xyzzy", path=str(tmp_path))
     assert "No matches" in result
+
+
+def test_grep_fallback_skips_hidden_dirs(tmp_path: Path):
+    search.allow_path(str(tmp_path))
+    visible = tmp_path / "visible.py"
+    visible.write_text("needle")
+    hidden_dir = tmp_path / ".hidden"
+    hidden_dir.mkdir()
+    (hidden_dir / "secret.py").write_text("needle")
+    with patch("subprocess.run", side_effect=FileNotFoundError()):
+        result = search.grep("needle", path=str(tmp_path))
+    assert "visible.py" in result
+    assert ".hidden/secret.py" not in result
 
 
 # -- shell tests --

@@ -80,6 +80,7 @@ def test_execute_single_tool_call():
 
 def test_execute_multiple_tool_calls_in_one_turn():
     results = []
+    model_inputs = []
 
     @tool()
     def add(a: int, b: int) -> int:
@@ -87,6 +88,7 @@ def test_execute_multiple_tool_calls_in_one_turn():
         return str(a + b)
 
     def model_fn(messages, **kw):
+        model_inputs.append(messages)
         if any(m.get("role") == "tool" for m in messages):
             return _make_model_response(content="all done")
         tc1 = {
@@ -106,6 +108,12 @@ def test_execute_multiple_tool_calls_in_one_turn():
     resp = svc.run_loop(model_fn, msgs, tools=svc.registry.definitions())
     assert results == [("add", 1, 2), ("add", 3, 4)]
     assert resp["choices"][0]["message"]["content"] == "all done"
+    second_turn = model_inputs[1]
+    assistant_tool_msgs = [
+        m for m in second_turn if m.get("role") == "assistant" and m.get("tool_calls")
+    ]
+    assert len(assistant_tool_msgs) == 1
+    assert len(assistant_tool_msgs[0]["tool_calls"]) == 2
 
 
 def test_max_turns_exhausted():

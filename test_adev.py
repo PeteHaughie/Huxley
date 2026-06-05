@@ -30,6 +30,11 @@ class ParseReviewTests(TestCase):
         r = _parse_review("VERDICT: DENIED\nISSUES:\n- bug (high)")
         self.assertEqual(r["verdict"], "DENIED")
 
+    def test_approve_verdict_tag(self):
+        from harness.adev.engine import _parse_review
+        r = _parse_review("VERDICT: APPROVE\ngood enough")
+        self.assertEqual(r["verdict"], "APPROVED")
+
     def test_approved_starts_with_text(self):
         from harness.adev.engine import _parse_review
         r = _parse_review("APPROVED - looks good")

@@ -70,7 +70,7 @@ def grep(pattern: str, include: str = "", path: str = "") -> str:
         if not f.is_file():
             continue
         try:
-            if any(f.name.startswith(".") for p in f.parents):
+            if any(p.name.startswith(".") for p in f.parents):
                 continue
             text = f.read_text(encoding="utf-8", errors="replace")
             for i, line in enumerate(text.splitlines(), 1):

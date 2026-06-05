@@ -38,15 +38,15 @@ class ToolService:
             if not msg.get("tool_calls"):
                 return resp
 
+            current.append(
+                {
+                    "role": "assistant",
+                    "content": msg.get("content"),
+                    "tool_calls": msg["tool_calls"],
+                }
+            )
             for tc in msg["tool_calls"]:
                 result = self._execute_tool_call(tc)
-                current.append(
-                    {
-                        "role": "assistant",
-                        "content": None,
-                        "tool_calls": [tc],
-                    }
-                )
                 current.append(
                     {
                         "role": "tool",
