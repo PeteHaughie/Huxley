@@ -15,8 +15,8 @@ class RoleConfig:
 
 
 DEFAULT_ROLES: dict[str, RoleConfig] = {
-    "programmer": RoleConfig(caste=Caste.ALPHA, tools=True),
-    "roaster": RoleConfig(caste=Caste.ALPHA, tools=True),
+    "programmer": RoleConfig(caste=Caste.GAMMA, tools=True),
+    "roaster": RoleConfig(caste=Caste.GAMMA, tools=True),
     "adjudicator": RoleConfig(
         caste=Caste.ALPHA, tools=False, token_input=16384, token_output=4096
     ),
