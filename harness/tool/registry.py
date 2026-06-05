@@ -45,7 +45,7 @@ class ToolRegistry:
         for py_file in sorted(tools_dir.glob("*.py")):
             if py_file.name.startswith("_"):
                 continue
-            mod_name = f"_skill_tools_{py_file.stem}"
+            mod_name = f"_skill_tools_{tools_dir.parent.name}_{py_file.stem}"
             if mod_name in sys.modules:
                 continue
             try:
