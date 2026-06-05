@@ -1,4 +1,6 @@
 import tempfile
+import unittest
+from inspect import signature
 from pathlib import Path
 from unittest.mock import patch
 
@@ -213,3 +215,22 @@ def test_bash_timeout(tmp_path: Path):
 def test_bash_disallowed_workdir():
     result = shell.bash("echo test", workdir="/etc")
     assert "Error: working directory not allowed" in result
+
+
+def _run_test(fn):
+    try:
+        if "tmp_path" in signature(fn).parameters:
+            with tempfile.TemporaryDirectory() as d:
+                fn(Path(d))
+        else:
+            fn()
+    finally:
+        teardown_function()
+
+
+def load_tests(loader, tests, pattern):  # pragma: no cover
+    suite = unittest.TestSuite()
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            suite.addTest(unittest.FunctionTestCase(lambda fn=fn: _run_test(fn), description=name))
+    return suite
