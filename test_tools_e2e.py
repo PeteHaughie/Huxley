@@ -1,10 +1,17 @@
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
 
+import harness.board.core as board_core
 from harness.board import JobBoard, Task, Level
 
 
 class ToolsE2ETests(unittest.TestCase):
     def setUp(self):
+        self._tmp = TemporaryDirectory()
+        self._old_board_dir = board_core.HUXLEY_BOARD_DIR
+        board_core.HUXLEY_BOARD_DIR = Path(self._tmp.name)
+
         self._infer_calls = []
 
         def _fake_infer(prompt, level, max_output=512, use_tools=False):
@@ -19,6 +26,8 @@ class ToolsE2ETests(unittest.TestCase):
 
     def tearDown(self):
         self.board.clear()
+        board_core.HUXLEY_BOARD_DIR = self._old_board_dir
+        self._tmp.cleanup()
 
     def test_tools_tag_propagates_epic_to_tasks(self):
         epic = Task(level=Level.EPIC, title="Build tool system", tags=["tools"])
