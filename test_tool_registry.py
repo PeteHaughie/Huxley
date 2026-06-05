@@ -1,0 +1,99 @@
+from pathlib import Path
+
+from harness.tool.registry import ToolRegistry
+from harness.tool.decorator import tool, clear_registered_tools
+
+
+def teardown_function():
+    clear_registered_tools()
+
+
+def test_registry_has_builtins():
+    reg = ToolRegistry()
+    names = reg.list_tools()
+    assert "read_file" in names
+    assert "write_file" in names
+    assert "edit_file" in names
+    assert "glob_files" in names
+    assert "grep" in names
+
+def test_shell_tools_require_opt_in():
+    reg = ToolRegistry()
+    assert "bash" not in reg.list_tools()
+    reg = ToolRegistry(builtins_cfg={"shell": True})
+    assert "bash" in reg.list_tools()
+
+
+def test_registry_definitions_are_openai_compatible():
+    reg = ToolRegistry()
+    defs = reg.definitions()
+    assert len(defs) > 5
+    for d in defs:
+        assert d["type"] == "function"
+        assert "name" in d["function"]
+        assert "description" in d["function"]
+        assert "parameters" in d["function"]
+
+
+def test_get_handler():
+    reg = ToolRegistry()
+    handler = reg.get_handler("read_file")
+    assert handler is not None
+    assert callable(handler)
+
+
+def test_get_handler_unknown():
+    reg = ToolRegistry()
+    assert reg.get_handler("nonexistent_tool") is None
+
+
+def test_has_tool():
+    reg = ToolRegistry()
+    assert reg.has_tool("read_file")
+    assert not reg.has_tool("unicorn_rainbow")
+
+
+def test_scan_skills_does_not_crash():
+    reg = ToolRegistry()
+    reg.scan_skills()
+
+
+def test_reset():
+    @tool()
+    def my_tool():
+        pass
+
+    reg = ToolRegistry()
+    assert reg.has_tool("my_tool")
+    ToolRegistry.reset()
+    clear_registered_tools()
+    reg2 = ToolRegistry()
+    assert not reg2.has_tool("my_tool")
+
+
+def test_scan_skills_loads_tools(tmp_path: Path):
+    skills_dir = tmp_path / ".agents" / "skills" / "testskill"
+    tools_dir = skills_dir / "tools"
+    tools_dir.mkdir(parents=True)
+
+    tool_code = """
+from harness.tool.decorator import tool
+
+@tool(description=\"A test tool from a skill\")
+def skill_tool(name: str) -> str:
+    return f\"hello {name}\"
+"""
+    (tools_dir / "greeter.py").write_text(tool_code)
+
+    import harness.tool.registry as reg_mod
+    original_dirs = reg_mod._skill_dirs
+
+    try:
+        reg_mod._skill_dirs = lambda: [skills_dir.parent]
+        reg = ToolRegistry()
+        reg.scan_skills()
+        assert reg.has_tool("skill_tool"), f"tools: {reg.list_tools()}"
+        handler = reg.get_handler("skill_tool")
+        assert handler("world") == "hello world"
+    finally:
+        reg_mod._skill_dirs = original_dirs

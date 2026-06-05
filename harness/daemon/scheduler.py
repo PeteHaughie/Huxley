@@ -1,5 +1,4 @@
 import json
-import os
 import sys
 import time
 import uuid
@@ -17,7 +16,15 @@ SCHEDULER_DIR = HUXLEY_HOME / "scheduler"
 SCHEDULES_PATH = SCHEDULER_DIR / "schedules.json"
 HISTORY_PATH = SCHEDULER_DIR / "history.json"
 
-TRIGGER_TYPES = ("interval", "daily_at", "cron", "idle", "backlog", "condition", "window")
+TRIGGER_TYPES = (
+    "interval",
+    "daily_at",
+    "cron",
+    "idle",
+    "backlog",
+    "condition",
+    "window",
+)
 ACTION_TYPES = ("post_to_board", "trigger_alpha", "run_skill", "self_mod")
 MISSED_BEHAVIOURS = ("skip", "catch_up", "fire_once")
 
@@ -88,7 +95,12 @@ def _save_schedules(schedules: list[Schedule]):
 
 def _append_history(schedule_id: str, action: dict, result: str):
     _ensure_scheduler_dir()
-    entry = {"schedule_id": schedule_id, "action": action, "result": result, "at": datetime.now(timezone.utc).isoformat()}
+    entry = {
+        "schedule_id": schedule_id,
+        "action": action,
+        "result": result,
+        "at": datetime.now(timezone.utc).isoformat(),
+    }
     history = []
     if HISTORY_PATH.exists():
         with open(HISTORY_PATH) as f:
@@ -130,7 +142,9 @@ def _calc_next_fire(when: dict, last_fired: Optional[str] = None) -> Optional[st
 def _check_idle(board: JobBoard, when: dict) -> bool:
     delay = when.get("after_seconds", 3600)
     tasks = board.list()
-    active = [t for t in tasks if t.state in (State.BACKLOG, State.READY, State.IN_PROGRESS)]
+    active = [
+        t for t in tasks if t.state in (State.BACKLOG, State.READY, State.IN_PROGRESS)
+    ]
     if active:
         return False
     mtimes = [p.stat().st_mtime for p in HUXLEY_BOARD_DIR.glob("*.json")]
@@ -195,8 +209,10 @@ class SchedulerEngine:
             return
         try:
             import signal
-            if hasattr(signal, 'SIGHUP'):
+
+            if hasattr(signal, "SIGHUP"):
                 from harness.selfmod.restart import register_reload_handler
+
                 register_reload_handler()
                 self._reload_handler_installed = True
         except Exception as e:
@@ -255,7 +271,11 @@ class SchedulerEngine:
 
     def _worker_tick(self):
         board = JobBoard()
-        for level, caste_tag in [(Level.UNIT, "γ"), (Level.TASK, "β"), (Level.EPIC, "α")]:
+        for level, caste_tag in [
+            (Level.UNIT, "γ"),
+            (Level.TASK, "β"),
+            (Level.EPIC, "α"),
+        ]:
             t = board.claim(level, caste_tag=caste_tag)
             if t is None:
                 continue
@@ -270,39 +290,52 @@ class SchedulerEngine:
 
     def _route_work(self, task: Task, board: JobBoard):
         level = task.level
+        use_tools = "tools" in task.tags
         if level == Level.EPIC:
-            self._alpha_breakdown(task, board)
+            self._alpha_breakdown(task, board, use_tools=use_tools)
         elif level == Level.TASK:
             if board.children_of(task.id):
                 self._beta_review(task, board)
             else:
-                self._beta_triage(task, board)
+                self._beta_triage(task, board, use_tools=use_tools)
         elif level == Level.UNIT:
-            self._gamma_execute(task, board)
+            self._gamma_execute(task, board, use_tools=use_tools)
 
-    def _infer(self, prompt: str, level: str, max_output: int = 512) -> str:
+    def _infer(
+        self, prompt: str, level: str, max_output: int = 512, use_tools: bool = False
+    ) -> str:
         from harness.comms import Message, Caste, Action
+
         caste_map = {"epic": Caste.ALPHA, "task": Caste.BETA, "unit": Caste.GAMMA}
-        msg = Message(
-            caste=caste_map[level],
-            action=Action.INFER,
-            payload={"prompt": prompt},
-            token_budget={"input": 4096, "output": max_output},
-        )
+        caste = caste_map[level]
+        if use_tools and caste == Caste.GAMMA:
+            caste = Caste.BETA
+        payload: dict = {"prompt": prompt}
         with self._inference_lock:
             if self._router is None:
                 self._router = self._get_router()
+            if use_tools and self._router.tools_enabled:
+                payload["tools"] = True
+            msg = Message(
+                caste=caste,
+                action=Action.INFER,
+                payload=payload,
+                token_budget={"input": 4096, "output": max_output},
+            )
             resp = self._router.dispatch(msg)
         if "error" in resp.payload:
             raise RuntimeError(resp.payload["error"])
         return resp.payload.get("result", "")
 
-    def infer(self, prompt: str, level: str, max_output: int = 512) -> str:
-        return self._infer(prompt, level, max_output)
+    def infer(
+        self, prompt: str, level: str, max_output: int = 512, use_tools: bool = False
+    ) -> str:
+        return self._infer(prompt, level, max_output, use_tools=use_tools)
 
     def _get_router(self):
         if self._router is None:
             from harness.comms.router import Router
+
             self._router = Router()
         return self._router
 
@@ -347,19 +380,23 @@ class SchedulerEngine:
 
         return stream()
 
-    def execute_task(self, title: str, prompt: str) -> dict:
-        triage_result = self._infer(prompt or title, Level.TASK.value)
+    def execute_task(self, title: str, prompt: str, use_tools: bool = False) -> dict:
+        triage_result = self._infer(
+            prompt or title, Level.TASK.value, use_tools=use_tools
+        )
         steps = self._parse_bullets(triage_result)
         if not steps or len(steps) < 2:
             return {"task_result": triage_result, "units": []}
         units = []
         for step in steps:
-            unit_result = self._infer(step, Level.UNIT.value)
+            unit_result = self._infer(step, Level.UNIT.value, use_tools=use_tools)
             units.append({"title": step[:80], "result": unit_result})
         compiled = "\n\n".join(f"## {s}\n{u['result']}" for s, u in zip(steps, units))
         return {"task_result": compiled, "units": units}
 
-    def _begin_peer_activity(self, peer_key: str, task: Task, caste: str, contribution_level: str):
+    def _begin_peer_activity(
+        self, peer_key: str, task: Task, caste: str, contribution_level: str
+    ):
         now = datetime.now(timezone.utc).isoformat()
         with self._peer_activity_lock:
             self._peer_activity[peer_key] = {
@@ -407,9 +444,15 @@ class SchedulerEngine:
 
     def _parse_bullets(self, text: str) -> list[str]:
         import re
+
         text = text.strip()
-        text = re.sub(r"^(Here['´`]s|I['´`]ll|Let me|I need to|I should|The user|The request|Ok,? let).*\n\n", "", text, flags=re.MULTILINE)
-        lines = [l.strip() for l in text.split("\n") if l.strip()]
+        text = re.sub(
+            r"^(Here['´`]s|I['´`]ll|Let me|I need to|I should|The user|The request|Ok,? let).*\n\n",
+            "",
+            text,
+            flags=re.MULTILINE,
+        )
+        lines = [line.strip() for line in text.split("\n") if line.strip()]
         bullets = []
         for line in lines:
             stripped = re.sub(r"^[\s*•\-‣⁃◦⦿⟹→]+|\d+[\.\)]\s*", "", line).strip()
@@ -425,7 +468,7 @@ class SchedulerEngine:
             bullets = [text]
         return bullets
 
-    def _alpha_breakdown(self, task: Task, board: JobBoard):
+    def _alpha_breakdown(self, task: Task, board: JobBoard, use_tools: bool = False):
         prompt = (
             f"You are breaking down a project request into sub-tasks.\n"
             f"Request: {task.prompt or task.title}\n\n"
@@ -433,17 +476,31 @@ class SchedulerEngine:
             f"Each sub-task should be a self-contained research or development task. "
             f"Output ONLY the numbered list, one per line."
         )
-        result = self._infer(prompt, Level.EPIC.value, max_output=1024)
+        result = self._infer(
+            prompt, Level.EPIC.value, max_output=1024, use_tools=use_tools
+        )
         bullets = self._parse_bullets(result)
         if not bullets or len(bullets) < 2:
             board.complete(task.id, result)
             print(f"γ|worker|alpha_done|{task.id[:8]}|direct|no bullets", flush=True)
             return
+        child_tags = ["tools"] if use_tools else None
         for bullet in bullets:
-            board.create(Task(level=Level.TASK, title=bullet[:80], prompt=bullet, parent_id=task.id))
-        print(f"γ|worker|alpha|{task.id[:8]}|{len(bullets)} tasks", flush=True)
+            board.create(
+                Task(
+                    level=Level.TASK,
+                    title=bullet[:80],
+                    prompt=bullet,
+                    parent_id=task.id,
+                    tags=child_tags,
+                )
+            )
+        print(
+            f"γ|worker|alpha|{task.id[:8]}|{len(bullets)} tasks{' (tools)' if use_tools else ''}",
+            flush=True,
+        )
 
-    def _beta_triage(self, task: Task, board: JobBoard):
+    def _beta_triage(self, task: Task, board: JobBoard, use_tools: bool = False):
         prompt = (
             f"Break this task into concrete research steps:\n"
             f"Task: {task.prompt or task.title}\n\n"
@@ -451,18 +508,31 @@ class SchedulerEngine:
             f"Each step must be a single, actionable item that can be executed independently. "
             f"Output ONLY the numbered list, one per line."
         )
-        result = self._infer(prompt, Level.TASK.value)
+        result = self._infer(prompt, Level.TASK.value, use_tools=use_tools)
         steps = self._parse_bullets(result)
         if not steps or len(steps) < 2:
             board.complete(task.id, result)
             print(f"γ|worker|beta_triage_done|{task.id[:8]}|direct", flush=True)
             return
+        child_tags = ["tools"] if use_tools else None
         for step in steps:
-            board.create(Task(level=Level.UNIT, title=step[:80], prompt=step, parent_id=task.id))
-        print(f"γ|worker|beta_triage|{task.id[:8]}|{len(steps)} units", flush=True)
+            board.create(
+                Task(
+                    level=Level.UNIT,
+                    title=step[:80],
+                    prompt=step,
+                    parent_id=task.id,
+                    tags=child_tags,
+                )
+            )
+        print(
+            f"γ|worker|beta_triage|{task.id[:8]}|{len(steps)} units{' (tools)' if use_tools else ''}",
+            flush=True,
+        )
 
-    def _gamma_execute(self, task: Task, board: JobBoard):
+    def _gamma_execute(self, task: Task, board: JobBoard, use_tools: bool = False):
         from harness.config import load_config
+
         cfg = load_config()
         delegation = cfg.get("swarm", {}).get("delegation", {})
         if delegation.get("enabled", True):
@@ -486,17 +556,27 @@ class SchedulerEngine:
                                 board.delete(child.id)
                             board.complete(parent.id, resp["task_result"])
                             for u in resp.get("units", []):
-                                child = Task(level=Level.UNIT, title=u["title"][:80],
-                                             prompt=u["title"], parent_id=parent.id,
-                                             state=State.DONE, result=u["result"])
+                                child = Task(
+                                    level=Level.UNIT,
+                                    title=u["title"][:80],
+                                    prompt=u["title"],
+                                    parent_id=parent.id,
+                                    state=State.DONE,
+                                    result=u["result"],
+                                )
                                 board.create(child)
-                            print(f"γ|worker|delegate|{peer}|{parent.id[:8]}|task", flush=True)
+                            print(
+                                f"γ|worker|delegate|{peer}|{parent.id[:8]}|task",
+                                flush=True,
+                            )
                             return
                         self._end_peer_activity(peer, "failed")
             for peer in self._select_peers("γ", max_load, selection):
                 self._begin_peer_activity(peer, task, "γ", Level.UNIT.value)
-                resp = self._delegate_to_peer(peer, "/v1/units/execute",
-                                              {"prompt": task.prompt or task.title})
+                remote_payload = {"prompt": task.prompt or task.title}
+                if use_tools:
+                    remote_payload["tools"] = True
+                resp = self._delegate_to_peer(peer, "/v1/units/execute", remote_payload)
                 if resp and "result" in resp:
                     self._end_peer_activity(peer, "completed")
                     self._mark_peer_selected("γ", peer)
@@ -505,9 +585,14 @@ class SchedulerEngine:
                     return
                 self._end_peer_activity(peer, "failed")
             print(f"γ|worker|delegate_fallback|{task.id[:8]}|local", flush=True)
-        result = self._infer(task.prompt or task.title, Level.UNIT.value)
+        result = self._infer(
+            task.prompt or task.title, Level.UNIT.value, use_tools=use_tools
+        )
         board.complete(task.id, result)
-        print(f"γ|worker|gamma_done|{task.id[:8]}", flush=True)
+        print(
+            f"γ|worker|gamma_done|{task.id[:8]}{' (tools)' if use_tools else ''}",
+            flush=True,
+        )
 
     def _select_peer(self, required_castes: str, max_load: int) -> Optional[str]:
         peers = self._select_peers(required_castes, max_load)
@@ -520,7 +605,8 @@ class SchedulerEngine:
         strategy: str = "round_robin",
     ) -> list[str]:
         candidates = [
-            p for p in _peer_table.list_active()
+            p
+            for p in _peer_table.list_active()
             if all(c in p.castes for c in required_castes) and p.load < max_load
         ]
         if not candidates:
@@ -545,6 +631,7 @@ class SchedulerEngine:
         if time.time() - last_fail < 60:
             return None
         from harness.comms.remote import post_to_peer
+
         addr, port_str = peer_key.rsplit(":", 1)
         result = post_to_peer(addr, int(port_str), path, body, timeout=120)
         if result is None:
@@ -576,13 +663,20 @@ class SchedulerEngine:
             print(f"γ|worker|compile_err|{epic.id[:8]}|{e}", flush=True)
             return
         from harness.projects import write_compiled_suggestions
+
         suggestions = write_compiled_suggestions(proj_dir, result)
         written = 0
         for suggestion in suggestions:
             written += suggestion["file_count"]
-            print(f"γ|worker|compile_suggestion|{suggestion['folder']}|{suggestion['file_count']} files", flush=True)
+            print(
+                f"γ|worker|compile_suggestion|{suggestion['folder']}|{suggestion['file_count']} files",
+                flush=True,
+            )
         if written > 0:
-            print(f"γ|worker|compile_ok|{epic.id[:8]}|{len(suggestions)} suggestions|{written} files|{proj_dir}", flush=True)
+            print(
+                f"γ|worker|compile_ok|{epic.id[:8]}|{len(suggestions)} suggestions|{written} files|{proj_dir}",
+                flush=True,
+            )
         else:
             print(f"γ|worker|compile_empty|{epic.id[:8]}|no file blocks", flush=True)
 
@@ -606,7 +700,7 @@ class SchedulerEngine:
         review = self._infer(review_prompt, Level.TASK.value, max_output=512)
         upper = review.strip().upper()
         if upper.startswith("ACCEPT"):
-            final = review[len("ACCEPT"):].strip().lstrip(":").strip()
+            final = review[len("ACCEPT") :].strip().lstrip(":").strip()
             board.complete(task.id, final or compiled)
             print(f"γ|worker|beta_review_accept|{task.id[:8]}", flush=True)
             return
@@ -621,11 +715,20 @@ class SchedulerEngine:
                 c.prompt = f"[Review feedback: {review[:200].strip()}]\n\n{c.prompt or c.title}"
                 c.transition(State.BACKLOG)
                 board.update(c)
-            print(f"γ|worker|beta_review_reject|{task.id[:8]}|{len(rejected)} rework|attempt={review_attempts}", flush=True)
+            print(
+                f"γ|worker|beta_review_reject|{task.id[:8]}|{len(rejected)} rework|attempt={review_attempts}",
+                flush=True,
+            )
             return
         if refined_count >= MAX_REFINE:
-            board.block(task.id, f"Failed after {review_attempts} reviews and {refined_count} refinements. Needs human intervention.")
-            print(f"γ|worker|beta_blocked|{task.id[:8]}|{MAX_REFINE} refinements exhausted|needs human intervention", flush=True)
+            board.block(
+                task.id,
+                f"Failed after {review_attempts} reviews and {refined_count} refinements. Needs human intervention.",
+            )
+            print(
+                f"γ|worker|beta_blocked|{task.id[:8]}|{MAX_REFINE} refinements exhausted|needs human intervention",
+                flush=True,
+            )
             return
         for c in children:
             board.delete(c.id)
@@ -644,11 +747,16 @@ class SchedulerEngine:
         if not steps or len(steps) < 2:
             steps = [f"{task.prompt or task.title} (step 1)"]
         for step in steps:
-            board.create(Task(level=Level.UNIT, title=step[:80], prompt=step, parent_id=task.id))
+            board.create(
+                Task(level=Level.UNIT, title=step[:80], prompt=step, parent_id=task.id)
+            )
         task.tags = [t for t in task.tags if t != "reviewed"] + ["refined"]
         task.transition(State.IN_PROGRESS)
         board.update(task)
-        print(f"γ|worker|beta_refine|{task.id[:8]}|{len(steps)} units after {review_attempts} rejections|refined={refined_count + 1}", flush=True)
+        print(
+            f"γ|worker|beta_refine|{task.id[:8]}|{len(steps)} units after {review_attempts} rejections|refined={refined_count + 1}",
+            flush=True,
+        )
 
     def _escalation_check(self, board: JobBoard):
         for task in board.list(level=Level.TASK, state=State.IN_PROGRESS):
@@ -674,11 +782,15 @@ class SchedulerEngine:
                 if epic is None:
                     return
                 from harness.projects import archive_epic
+
                 proj_dir = archive_epic(epic, board)
                 epic.tags.append(f"project:{proj_dir.name}")
                 board.update(epic)
                 self._compile_project_files(epic, board, proj_dir)
-                print(f"γ|worker|escalate|{task.id[:8]}|epic→done|project={proj_dir.name}", flush=True)
+                print(
+                    f"γ|worker|escalate|{task.id[:8]}|epic→done|project={proj_dir.name}",
+                    flush=True,
+                )
 
     def _tick(self):
         board = JobBoard()
@@ -710,8 +822,10 @@ class SchedulerEngine:
             _save_schedules(schedules)
         if self._pending_reload:
             try:
-                import signal, os
-                if self._reload_handler_installed and hasattr(signal, 'SIGHUP'):
+                import signal
+                import os
+
+                if self._reload_handler_installed and hasattr(signal, "SIGHUP"):
                     os.kill(os.getpid(), signal.SIGHUP)
                 elif not self._reload_handler_installed:
                     print("γ|scheduler|reload_skip|handler_not_installed", flush=True)
@@ -723,11 +837,17 @@ class SchedulerEngine:
     def _fire(self, schedule: Schedule):
         handler = self._action_handlers.get(schedule.action.get("type"))
         if handler is None:
-            print(f"γ|scheduler|no_handler|{schedule.id}|{schedule.action.get('type')}", flush=True)
+            print(
+                f"γ|scheduler|no_handler|{schedule.id}|{schedule.action.get('type')}",
+                flush=True,
+            )
             return
         try:
             handler(schedule)
-            print(f"γ|scheduler|fire|{schedule.id[:8]}|{schedule.action.get('type')}|{schedule.title}", flush=True)
+            print(
+                f"γ|scheduler|fire|{schedule.id[:8]}|{schedule.action.get('type')}|{schedule.title}",
+                flush=True,
+            )
             _append_history(schedule.id, schedule.action, "ok")
         except Exception as e:
             print(f"γ|scheduler|fire_err|{schedule.id[:8]}|{e}", flush=True)
@@ -741,10 +861,12 @@ class SchedulerEngine:
             level = Level(level_str)
         except ValueError:
             level = Level.TASK
+        tags = ["tools"] if a.get("tools", False) else None
         t = Task(
             level=level,
             title=a.get("title", schedule.title or "scheduled task"),
             prompt=a.get("prompt", ""),
+            tags=tags,
         )
         board.create(t)
 
@@ -757,7 +879,9 @@ class SchedulerEngine:
         if not file_key:
             raise RuntimeError(f"self_mod: file key is missing from action: {file_key}")
         if not isinstance(file_key, str):
-            raise RuntimeError(f"self_mod: file key must be a string, got {type(file_key).__name__}: {file_key!r}")
+            raise RuntimeError(
+                f"self_mod: file key must be a string, got {type(file_key).__name__}: {file_key!r}"
+            )
 
         project_root = Path(__file__).resolve().parents[2]
         file_path = Path(file_key).expanduser()
@@ -766,10 +890,15 @@ class SchedulerEngine:
         else:
             target = (project_root / file_path).resolve()
         from harness.selfmod.patcher import Patcher
+
         if not Patcher.path_allowed(target):
-            raise RuntimeError(f"self_mod: {target} not in allowed directory (must be under project root or ~/.huxley)")
+            raise RuntimeError(
+                f"self_mod: {target} not in allowed directory (must be under project root or ~/.huxley)"
+            )
         if not target.is_file():
-            raise RuntimeError(f"self_mod: file not found or not a regular file: {target}")
+            raise RuntimeError(
+                f"self_mod: file not found or not a regular file: {target}"
+            )
 
         if not isinstance(content, str) or not content.strip():
             raise RuntimeError(f"self_mod: empty content for {target}")
@@ -782,7 +911,11 @@ class SchedulerEngine:
         target_str = str(target)
         patcher = Patcher()
         is_py = target.suffix == ".py"
-        val = validate_patch(target_str, content) if is_py else {"ok": True, "errors": [], "warnings": []}
+        val = (
+            validate_patch(target_str, content)
+            if is_py
+            else {"ok": True, "errors": [], "warnings": []}
+        )
         if auto_apply and val.get("ok") and not val.get("warnings"):
             res = patcher.apply(target_str, content, dry_run=False)
             if res.get("ok"):
@@ -791,11 +924,15 @@ class SchedulerEngine:
                     if self._reload_handler_installed:
                         self._pending_reload = True
                     else:
-                        print("γ|scheduler|reload_skip|handler_not_installed", flush=True)
+                        print(
+                            "γ|scheduler|reload_skip|handler_not_installed", flush=True
+                        )
                 else:
                     print(f"γ|scheduler|self_mod|no_changes|{target_str}", flush=True)
             else:
-                raise RuntimeError(f"self_mod: apply failed: {res.get('error', 'unknown')}")
+                raise RuntimeError(
+                    f"self_mod: apply failed: {res.get('error', 'unknown')}"
+                )
             return
 
         # post dry-run diff + validator report to board for review

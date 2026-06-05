@@ -61,11 +61,11 @@ class RouterOpenAIModelTests(unittest.TestCase):
 
     def test_beta_tool_calling_raises_request_error_for_json_and_streaming(self):
         fake_alpha_module = types.ModuleType("harness.caste.alpha")
-        fake_alpha_module.Alpha = lambda: object()
+        fake_alpha_module.Alpha = lambda tool_service=None: object()
         fake_beta_module = types.ModuleType("harness.caste.beta")
-        fake_beta_module.Beta = lambda: object()
+        fake_beta_module.Beta = lambda tool_service=None: object()
         fake_gamma_module = types.ModuleType("harness.caste.gamma")
-        fake_gamma_module.Gamma = lambda: object()
+        fake_gamma_module.Gamma = lambda tool_service=None: object()
         with (
             patch("harness.config.load_config", return_value={}),
             patch.dict(
@@ -105,11 +105,13 @@ class RouterOpenAIModelTests(unittest.TestCase):
 
     def test_alpha_invalid_response_does_not_fallback_to_beta(self):
         class FakeAlpha:
+            def __init__(self, tool_service=None):
+                pass
             def complete_chat(self, *_args, **_kwargs):
                 return "not-a-dict"
 
         class FakeBeta:
-            def __init__(self):
+            def __init__(self, tool_service=None):
                 self.calls = 0
 
             def complete_chat(self, *_args, **_kwargs):
@@ -117,7 +119,8 @@ class RouterOpenAIModelTests(unittest.TestCase):
                 return "beta"
 
         class FakeGamma:
-            pass
+            def __init__(self, tool_service=None):
+                pass
 
         fake_alpha_module = types.ModuleType("harness.caste.alpha")
         fake_alpha_module.Alpha = FakeAlpha
@@ -153,7 +156,8 @@ class SchedulerSelfModTests(unittest.TestCase):
         self.engine = SchedulerEngine()
 
     def test_self_mod_rejects_path_outside_allowed(self):
-        import tempfile, os
+        import tempfile
+        import os
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as f:
             outside = f.name
         try:

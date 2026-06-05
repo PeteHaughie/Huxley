@@ -113,13 +113,16 @@ class RouterAliasCollisionTests(unittest.TestCase):
         fake_gamma_module = types.ModuleType("harness.caste.gamma")
 
         class FakeAlpha:
-            pass
+            def __init__(self, tool_service=None):
+                pass
 
         class FakeBeta:
-            pass
+            def __init__(self, **kwargs):
+                pass
 
         class FakeGamma:
-            pass
+            def __init__(self, tool_service=None):
+                pass
 
         fake_alpha_module.Alpha = FakeAlpha
         fake_beta_module.Beta = FakeBeta

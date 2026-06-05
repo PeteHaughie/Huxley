@@ -1,4 +1,3 @@
-import os
 import yaml
 from pathlib import Path
 
@@ -26,11 +25,8 @@ DEFAULT_CONFIG = {
         "draft_max": 8,
     },
     "beta": {
-        "engine": "llama.cpp",
         "model": "~/.huxley/models/Bonsai-8B.gguf",
         "ctx_size": 65536,
-        "fallback_engine": "mlx",
-        "fallback_model": "prism-ml/Ternary-Bonsai-8B",
     },
     "gamma": {
         "endpoint": "http://localhost:11434/v1",
@@ -69,6 +65,16 @@ DEFAULT_CONFIG = {
             "max_load": 5,
             "selection": "round_robin",
         },
+    },
+    "tools": {
+        "enabled": True,
+        "max_turns": 10,
+        "builtins": {
+            "filesystem": True,
+            "search": True,
+            "shell": False,
+        },
+        "path_whitelist": ["{{project_root}}", "~/.huxley"],
     },
     "harness": {
         "context_hint": "caveman",
@@ -133,7 +139,6 @@ _model_path_keys = [
     ("alpha", "model"),
     ("alpha", "draft_model"),
     ("beta", "model"),
-    ("beta", "fallback_model"),
     ("cloud", "model"),
 ]
 
@@ -149,7 +154,7 @@ def _repair_legacy_model_aliases(cfg: dict) -> bool:
     repaired = False
     for section, keys in {
         "alpha": ("model", "draft_model"),
-        "beta": ("model", "fallback_model"),
+        "beta": ("model",),
     }.items():
         section_cfg = cfg.get(section)
         if not isinstance(section_cfg, dict):
@@ -183,7 +188,7 @@ def _repair_legacy_paths(cfg: dict) -> bool:
             for legacy, replacement in zip(legacy_prefixes, replacement_prefixes):
                 if value.startswith(legacy):
                     repaired = True
-                    return replacement + value[len(legacy):]
+                    return replacement + value[len(legacy) :]
             # Also handle absolute filesystem paths containing /.monster/ from any home directory
             if value.startswith("/") and "/.monster/" in value:
                 repaired = True

@@ -17,21 +17,18 @@ class _WorkingModel:
 class BetaRecoveryTests(unittest.TestCase):
     def test_decode_error_reloads_with_smaller_context_and_retries(self):
         beta = Beta({
-            "engine": "llama.cpp",
             "model": "/tmp/fake-model.gguf",
-            "fallback_engine": "mlx",
-            "fallback_model": "prism-ml/Ternary-Bonsai-8B",
             "ctx_size": 49152,
         })
         states = iter([
-            (_FailingModel(), None),
-            (_WorkingModel(), None),
+            _FailingModel(),
+            _WorkingModel(),
         ])
 
         def fake_load():
             if beta._model is not None:
                 return
-            beta._model, beta._tokenizer = next(states)
+            beta._model = next(states)
 
         beta._load = fake_load  # type: ignore[method-assign]
 
