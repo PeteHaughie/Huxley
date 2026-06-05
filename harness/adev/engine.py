@@ -168,10 +168,19 @@ class AdversarialDevEngine:
         max_rounds: int = 5,
         **role_overrides,
     ) -> dict:
-        from harness.tool.builtins.filesystem import allow_path
+        root = workdir or os.getcwd()
 
-        allow_path(workdir or os.getcwd())
+        from harness.tool.builtins.filesystem import allow_path as allow_fs_path
 
+        allow_fs_path(root)
+        if self._tool_service.registry.has_tool("grep"):
+            from harness.tool.builtins.search import allow_path as allow_search_path
+
+            allow_search_path(root)
+        if self._tool_service.registry.has_tool("bash"):
+            from harness.tool.builtins.shell import allow_path as allow_shell_path
+
+            allow_shell_path(root)
         roles = self._resolve_roles(role_overrides) if role_overrides else self._roles
 
         history: list[dict] = []
