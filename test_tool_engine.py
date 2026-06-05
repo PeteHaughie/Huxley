@@ -1,4 +1,5 @@
 import json
+import unittest
 from harness.tool.engine import ToolService
 from harness.tool.registry import ToolRegistry
 from harness.tool.decorator import tool, clear_registered_tools
@@ -192,3 +193,38 @@ def test_tool_service_with_tools_kwarg():
     msgs = [{"role": "user", "content": "test tools kwarg"}]
     resp = svc.run_loop(model_fn, msgs, tools=svc.registry.definitions())
     assert f"got {tool_count} tools" in resp["choices"][0]["message"]["content"]
+
+
+class ToolEngineTests(unittest.TestCase):
+    def setUp(self):
+        clear_registered_tools()
+
+    def tearDown(self):
+        clear_registered_tools()
+
+    def test_no_tools_passthrough(self):
+        test_no_tools_passthrough()
+
+    def test_no_tool_calls_in_response(self):
+        test_no_tool_calls_in_response()
+
+    def test_execute_single_tool_call(self):
+        test_execute_single_tool_call()
+
+    def test_execute_multiple_tool_calls_in_one_turn(self):
+        test_execute_multiple_tool_calls_in_one_turn()
+
+    def test_max_turns_exhausted(self):
+        test_max_turns_exhausted()
+
+    def test_unknown_tool_returns_error(self):
+        test_unknown_tool_returns_error()
+
+    def test_tool_error_returns_error_message(self):
+        test_tool_error_returns_error_message()
+
+    def test_tool_invalid_json_arguments(self):
+        test_tool_invalid_json_arguments()
+
+    def test_tool_service_with_tools_kwarg(self):
+        test_tool_service_with_tools_kwarg()
