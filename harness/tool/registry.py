@@ -50,6 +50,8 @@ class ToolRegistry:
         module_name = getattr(entry.get("fn"), "__module__", None)
         if module_name in self._builtin_modules:
             return module_name in self._enabled_builtin_modules
+        if isinstance(module_name, str) and module_name.startswith("_skill_tools_"):
+            return self._skills_scan_enabled
         return True
 
     def scan_skills(self):

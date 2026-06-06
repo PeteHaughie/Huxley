@@ -336,13 +336,12 @@ def _extract_tool_calls(text: str) -> tuple[list[dict], str]:
     if not matches:
         return [], text
     tool_calls = []
-    for i, m in enumerate(matches):
+    for m in matches:
         try:
             parsed = json.loads(m.group(1))
             args = parsed.get("arguments", {})
             tool_calls.append(
                 {
-                    "id": f"call_{i}",
                     "type": "function",
                     "function": {
                         "name": parsed.get("name", ""),

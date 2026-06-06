@@ -145,6 +145,38 @@ def from_huxley() -> str:
         reg_mod._skill_dirs = original_dirs
 
 
+def test_skills_disabled_hides_previously_scanned_skill_tools(tmp_path: Path):
+    skills_dir = tmp_path / ".agents" / "skills" / "testskill"
+    tools_dir = skills_dir / "tools"
+    tools_dir.mkdir(parents=True)
+
+    (tools_dir / "greeter.py").write_text(
+        """
+from harness.tool.decorator import tool
+
+@tool(description="A test tool from a skill")
+def skill_tool(name: str) -> str:
+    return f"hello {name}"
+"""
+    )
+
+    import harness.tool.registry as reg_mod
+
+    original_dirs = reg_mod._skill_dirs
+    try:
+        reg_mod._skill_dirs = lambda: [skills_dir.parent]
+        enabled = ToolRegistry(builtins_cfg={"skills": True})
+        enabled.scan_skills()
+        assert enabled.has_tool("skill_tool")
+
+        disabled = ToolRegistry(builtins_cfg={"skills": False})
+        assert not disabled.has_tool("skill_tool")
+        assert "skill_tool" not in disabled.list_tools()
+        assert disabled.get_handler("skill_tool") is None
+    finally:
+        reg_mod._skill_dirs = original_dirs
+
+
 import tempfile
 import unittest
 from inspect import signature

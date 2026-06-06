@@ -1,6 +1,6 @@
 import unittest
 
-from harness.caste.beta import Beta
+from harness.caste.beta import Beta, _extract_tool_calls
 from harness.comms.message import Message, Caste, Action
 
 
@@ -43,6 +43,13 @@ class BetaRecoveryTests(unittest.TestCase):
 
         self.assertEqual(resp.payload["result"], "recovered")
         self.assertEqual(beta.ctx_size, 24576)
+
+    def test_extract_tool_calls_leaves_id_unset_for_tool_service(self):
+        text = '<tool_call>{"name":"read_file","arguments":{"path":"x.txt"}}</tool_call>'
+        tool_calls, cleaned = _extract_tool_calls(text)
+        self.assertEqual(cleaned, "")
+        self.assertEqual(len(tool_calls), 1)
+        self.assertNotIn("id", tool_calls[0])
 
 
 if __name__ == "__main__":
