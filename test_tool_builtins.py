@@ -159,6 +159,30 @@ def test_delete_file_disallowed_path():
     assert "Error: path not allowed" in result
 
 
+def test_filesystem_allow_path_initializes_roots_before_append(tmp_path: Path):
+    original_roots = list(filesystem._PROJECT_ROOTS)
+    original_init_done = filesystem._INIT_PROJECT_ROOTS_DONE
+    filesystem._PROJECT_ROOTS.clear()
+    filesystem._INIT_PROJECT_ROOTS_DONE = False
+    try:
+        cwd_at_allow = tmp_path / "cwd_at_allow"
+        cwd_after = tmp_path / "cwd_after"
+        allowed = tmp_path / "allowed"
+        cwd_at_allow.mkdir()
+        cwd_after.mkdir()
+        allowed.mkdir()
+
+        with patch("harness.tool.builtins.filesystem.Path.cwd", return_value=cwd_at_allow):
+            filesystem.allow_path(str(allowed))
+        with patch("harness.tool.builtins.filesystem.Path.cwd", return_value=cwd_after):
+            result = filesystem.read_file(str(cwd_after / "outside.txt"))
+        assert "Error: path not allowed" in result
+    finally:
+        filesystem._PROJECT_ROOTS.clear()
+        filesystem._PROJECT_ROOTS.extend(original_roots)
+        filesystem._INIT_PROJECT_ROOTS_DONE = original_init_done
+
+
 # -- search tests --
 
 

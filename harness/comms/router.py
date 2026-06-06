@@ -41,7 +41,13 @@ class Router:
 
             _cfg = _hc.load_config()
             api_cfg = _cfg.get("api", {})
-            tools_cfg = _cfg.get("tools", {})
+            raw_tools_cfg = _cfg.get("tools", {})
+            if isinstance(raw_tools_cfg, dict):
+                tools_cfg = dict(raw_tools_cfg)
+            elif isinstance(raw_tools_cfg, bool):
+                tools_cfg = {"enabled": raw_tools_cfg}
+            else:
+                tools_cfg = {}
         except (FileNotFoundError, OSError, yaml.YAMLError) as e:
             print(
                 f"γ|router|config_err|{type(e).__name__}: {e}",

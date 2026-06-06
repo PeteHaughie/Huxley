@@ -150,6 +150,53 @@ class RouterAliasCollisionTests(unittest.TestCase):
         self.assertIs(alpha_handler, router._alpha)
         self.assertIs(beta_handler, router._beta)
 
+    def test_boolean_tools_config_is_normalized(self):
+        fake_alpha_module = types.ModuleType("harness.caste.alpha")
+        fake_beta_module = types.ModuleType("harness.caste.beta")
+        fake_gamma_module = types.ModuleType("harness.caste.gamma")
+        fake_tool_engine_module = types.ModuleType("harness.tool.engine")
+        captured = {}
+
+        class FakeAlpha:
+            def __init__(self, tool_service=None):
+                pass
+
+        class FakeBeta:
+            def __init__(self, **kwargs):
+                pass
+
+        class FakeGamma:
+            def __init__(self, tool_service=None):
+                pass
+
+        class FakeToolService:
+            def __init__(self, tools_cfg=None):
+                captured["tools_cfg"] = tools_cfg
+
+        fake_alpha_module.Alpha = FakeAlpha
+        fake_beta_module.Beta = FakeBeta
+        fake_gamma_module.Gamma = FakeGamma
+        fake_tool_engine_module.ToolService = FakeToolService
+
+        with (
+            patch("harness.config.load_config", return_value={"tools": False}),
+            patch.dict(
+                sys.modules,
+                {
+                    "harness.caste.alpha": fake_alpha_module,
+                    "harness.caste.beta": fake_beta_module,
+                    "harness.caste.gamma": fake_gamma_module,
+                    "harness.tool.engine": fake_tool_engine_module,
+                },
+            ),
+        ):
+            from harness.comms.router import Router
+
+            router = Router()
+
+        self.assertFalse(router.tools_enabled)
+        self.assertEqual(captured["tools_cfg"], {"enabled": False})
+
 
 if __name__ == "__main__":
     unittest.main()
