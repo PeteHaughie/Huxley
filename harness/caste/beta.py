@@ -326,14 +326,12 @@ def _inject_tool_calls(resp: dict) -> None:
     tcs, cleaned = _extract_tool_calls(content)
     if not tcs:
         return
-    if cleaned:
-        return
     msg["tool_calls"] = tcs
-    msg["content"] = cleaned
+    msg["content"] = cleaned or None
 
 
 def _extract_tool_calls(text: str) -> tuple[list[dict], str]:
-    pattern = r"<tool_call>\s*(\{.*?\})\s*</tool_call>"
+    pattern = r"<tool_call>\s*(.*?)\s*</tool_call>"
     matches = list(re.finditer(pattern, text, re.DOTALL))
     if not matches:
         return [], text
@@ -341,13 +339,14 @@ def _extract_tool_calls(text: str) -> tuple[list[dict], str]:
     for i, m in enumerate(matches):
         try:
             parsed = json.loads(m.group(1))
+            args = parsed.get("arguments", {})
             tool_calls.append(
                 {
                     "id": f"call_{i}",
                     "type": "function",
                     "function": {
                         "name": parsed.get("name", ""),
-                        "arguments": json.dumps(parsed.get("arguments", {})),
+                        "arguments": args if isinstance(args, str) else json.dumps(args),
                     },
                 }
             )

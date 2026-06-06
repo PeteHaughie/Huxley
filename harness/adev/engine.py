@@ -212,8 +212,8 @@ class AdversarialDevEngine:
             )
             roots_restores.append((_shell_snapshot(), _shell_restore))
             allow_shell_path(root)
-        os.chdir(root)
         try:
+            os.chdir(root)
             roles = self._resolve_roles(role_overrides) if role_overrides else self._roles
 
             history: list[dict] = []
