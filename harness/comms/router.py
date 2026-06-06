@@ -92,8 +92,9 @@ class Router:
     def dispatch(self, msg: Message) -> Message:
         handler = self._routes.get(msg.caste)
         if handler is None:
+            response_caste = msg.caste if isinstance(msg.caste, Caste) else Caste.ALPHA
             return Message(
-                caste=Caste.ALPHA,
+                caste=response_caste,
                 action=Action.ROUTE,
                 payload={"error": f"unknown caste: {msg.caste}"},
                 session=msg.session,

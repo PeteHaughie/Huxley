@@ -244,6 +244,16 @@ class RouterOpenAIModelTests(unittest.TestCase):
         self.assertNotIn("error", resp.payload)
         self.assertEqual(gamma_calls["count"], 1)
 
+    def test_dispatch_unknown_caste_preserves_requested_caste(self):
+        router = Router.__new__(Router)
+        router._routes = {}
+        resp = router.dispatch(
+            Message(caste=Caste.BETA, action=Action.INFER, payload={"prompt": "x"})
+        )
+
+        self.assertEqual(resp.caste, Caste.BETA)
+        self.assertIn("unknown caste", resp.payload.get("error", ""))
+
 
 class SchedulerSelfModTests(unittest.TestCase):
     def setUp(self):

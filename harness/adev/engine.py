@@ -187,8 +187,6 @@ class AdversarialDevEngine:
         root = os.path.abspath(workdir or os.getcwd())
         previous_cwd = os.getcwd()
 
-        os.chdir(root)
-
         roots_restores: list[tuple] = []
         if self._tool_service.registry.has_tool("read_file"):
             from harness.tool.builtins.filesystem import (
@@ -214,6 +212,7 @@ class AdversarialDevEngine:
             )
             roots_restores.append((_shell_snapshot(), _shell_restore))
             allow_shell_path(root)
+        os.chdir(root)
         try:
             roles = self._resolve_roles(role_overrides) if role_overrides else self._roles
 

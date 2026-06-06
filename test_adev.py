@@ -262,6 +262,30 @@ class AdversarialDevEngineTests(TestCase):
         self.assertTrue(all(cwd == os.path.abspath(d) for cwd in seen_cwds))
         self.assertEqual(os.getcwd(), original_cwd)
 
+    def test_run_with_workdir_does_not_persist_tool_root_whitelist(self):
+        import tempfile
+        from harness.adev.engine import AdversarialDevEngine
+        from harness.tool.builtins.filesystem import _snapshot_roots as _fs_snapshot
+        from harness.tool.builtins.search import _snapshot_roots as _search_snapshot
+        from harness.tool.builtins.shell import _snapshot_roots as _shell_snapshot
+
+        before_fs = _fs_snapshot()
+        before_search = _search_snapshot()
+        before_shell = _shell_snapshot()
+
+        def fake_delegate(cfg, prompt):
+            if "harsh but fair code reviewer" in prompt:
+                return "VERDICT: APPROVED"
+            return "implemented"
+
+        with tempfile.TemporaryDirectory() as d:
+            engine = AdversarialDevEngine(router=FakeRouter(), delegate=fake_delegate)
+            engine.run(task="feature", workdir=d, max_rounds=1)
+
+        self.assertEqual(before_fs, _fs_snapshot())
+        self.assertEqual(before_search, _search_snapshot())
+        self.assertEqual(before_shell, _shell_snapshot())
+
 
 class CLITests(TestCase):
     def test_adev_parser_added(self):
