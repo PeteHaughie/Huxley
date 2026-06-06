@@ -45,9 +45,10 @@ def grep(pattern: str, include: str = "", path: str = "") -> str:
     try:
         import subprocess
 
-        cmd = ["rg", "--no-heading", "--line-number", pattern, str(base)]
+        cmd = ["rg", "--no-heading", "--line-number"]
         if include:
             cmd.extend(["--glob", include])
+        cmd.extend(["--", pattern, str(base)])
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
         if result.returncode == 0:
             output = result.stdout.strip()

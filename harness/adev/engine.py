@@ -132,7 +132,23 @@ class AdversarialDevEngine:
         from harness.tool.engine import ToolService
         from harness.comms.router import Router
 
-        self._tool_service = tool_service or ToolService()
+        if tool_service is None:
+            try:
+                import harness.config as _hc
+                import yaml
+
+                _cfg = _hc.load_config()
+                raw_tools_cfg = _cfg.get("tools", {})
+                if isinstance(raw_tools_cfg, dict):
+                    tools_cfg = dict(raw_tools_cfg)
+                elif isinstance(raw_tools_cfg, bool):
+                    tools_cfg = {"enabled": raw_tools_cfg}
+                else:
+                    tools_cfg = {}
+            except (FileNotFoundError, OSError, yaml.YAMLError):
+                tools_cfg = {}
+            tool_service = ToolService(tools_cfg=tools_cfg)
+        self._tool_service = tool_service
         self._router = router or Router(tool_service=self._tool_service)
         self._roles: dict[str, RoleConfig] = self._resolve_roles(roles)
         self._delegate = delegate
