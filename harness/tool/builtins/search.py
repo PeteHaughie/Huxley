@@ -21,6 +21,15 @@ def allow_path(path: str):
     if p not in _PROJECT_ROOTS:
         _PROJECT_ROOTS.append(p)
 
+
+def _snapshot_roots() -> list[Path]:
+    _init_project_roots()
+    return list(_PROJECT_ROOTS)
+
+
+def _restore_roots(snapshot: list[Path]) -> None:
+    _PROJECT_ROOTS[:] = snapshot
+
 def _is_path_allowed(path: Path) -> bool:
     _init_project_roots()
     resolved = path.resolve()

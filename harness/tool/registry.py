@@ -15,7 +15,9 @@ class ToolRegistry:
         self._skills_scanned = False
         self._enabled_builtin_modules: set[str] = set()
         self._builtin_modules: set[str] = set()
-        self._load_builtins(builtins_cfg or {})
+        cfg = builtins_cfg or {}
+        self._skills_scan_enabled: bool = bool(cfg.get("skills", False))
+        self._load_builtins(cfg)
 
     def _load_builtins(self, builtins_cfg: dict):
         _BUILTIN_MODULES = [
@@ -52,6 +54,8 @@ class ToolRegistry:
 
     def scan_skills(self):
         if self._skills_scanned:
+            return
+        if not self._skills_scan_enabled:
             return
         for skills_dir in _skill_dirs():
             for entry in sorted(skills_dir.iterdir()):

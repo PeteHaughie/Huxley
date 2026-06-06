@@ -73,6 +73,7 @@ DEFAULT_CONFIG = {
             "filesystem": True,
             "search": True,
             "shell": False,
+            "skills": False,
         },
         "path_whitelist": ["~/.huxley"],
     },

@@ -62,7 +62,7 @@ def test_has_tool():
 
 
 def test_scan_skills_does_not_crash():
-    reg = ToolRegistry()
+    reg = ToolRegistry(builtins_cfg={"skills": True})
     reg.scan_skills()
 
 
@@ -98,7 +98,7 @@ def skill_tool(name: str) -> str:
 
     try:
         reg_mod._skill_dirs = lambda: [skills_dir.parent]
-        reg = ToolRegistry()
+        reg = ToolRegistry(builtins_cfg={"skills": True})
         reg.scan_skills()
         assert reg.has_tool("skill_tool"), f"tools: {reg.list_tools()}"
         handler = reg.get_handler("skill_tool")
@@ -137,7 +137,7 @@ def from_huxley() -> str:
     original_dirs = reg_mod._skill_dirs
     try:
         reg_mod._skill_dirs = lambda: [tmp_path / ".agents" / "skills", tmp_path / ".huxley" / "skills"]
-        reg = ToolRegistry()
+        reg = ToolRegistry(builtins_cfg={"skills": True})
         reg.scan_skills()
         assert reg.has_tool("from_agents")
         assert reg.has_tool("from_huxley")

@@ -189,17 +189,30 @@ class AdversarialDevEngine:
 
         os.chdir(root)
 
+        roots_restores: list[tuple] = []
         if self._tool_service.registry.has_tool("read_file"):
-            from harness.tool.builtins.filesystem import allow_path as allow_fs_path
-
+            from harness.tool.builtins.filesystem import (
+                allow_path as allow_fs_path,
+                _snapshot_roots as _fs_snapshot,
+                _restore_roots as _fs_restore,
+            )
+            roots_restores.append((_fs_snapshot(), _fs_restore))
             allow_fs_path(root)
         if self._tool_service.registry.has_tool("grep"):
-            from harness.tool.builtins.search import allow_path as allow_search_path
-
+            from harness.tool.builtins.search import (
+                allow_path as allow_search_path,
+                _snapshot_roots as _search_snapshot,
+                _restore_roots as _search_restore,
+            )
+            roots_restores.append((_search_snapshot(), _search_restore))
             allow_search_path(root)
         if self._tool_service.registry.has_tool("bash"):
-            from harness.tool.builtins.shell import allow_path as allow_shell_path
-
+            from harness.tool.builtins.shell import (
+                allow_path as allow_shell_path,
+                _snapshot_roots as _shell_snapshot,
+                _restore_roots as _shell_restore,
+            )
+            roots_restores.append((_shell_snapshot(), _shell_restore))
             allow_shell_path(root)
         try:
             roles = self._resolve_roles(role_overrides) if role_overrides else self._roles
@@ -230,6 +243,8 @@ class AdversarialDevEngine:
                 "adjudication": final.get("feedback", ""),
             }
         finally:
+            for snapshot, restore_fn in roots_restores:
+                restore_fn(snapshot)
             os.chdir(previous_cwd)
 
     def _programmer_round(

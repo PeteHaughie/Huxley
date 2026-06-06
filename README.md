@@ -326,14 +326,17 @@ huxley board post epic "build auth system" --tools
 | `grep` | Search file contents by regex |
 | `bash` | Run shell commands (disabled by default) |
 
-All tools are path-restricted to the project root and `~/.huxley/`. Bash execution is opt-in via config:
+Filesystem and search tools restrict access to a set of allowed roots: the project root, `~/.huxley/`, and any paths listed under `tools.path_whitelist`. The `bash` tool only restricts the **working directory** to these allowed roots — shell commands can still access arbitrary absolute paths inside the process. To minimise that exposure, keep `shell` disabled unless you explicitly need it.
+
+Skill tool loading (`tools.builtins.skills`) is disabled by default; enable it only for explicitly trusted skill directories.
 
 ```yaml
 tools:
   enabled: true
   max_turns: 10
   builtins:
-    shell: false   # set to true to enable bash
+    shell: false    # set to true to enable bash (working-dir restricted only)
+    skills: false   # set to true to auto-load skill tools from ~/.agents and ~/.huxley
   path_whitelist:
     - /Users/me/my-project
     - /Users/me/.huxley

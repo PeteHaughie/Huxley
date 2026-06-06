@@ -21,6 +21,15 @@ def allow_path(path: str):
     if p not in _PROJECT_ROOTS:
         _PROJECT_ROOTS.append(p)
 
+
+def _snapshot_roots() -> list[Path]:
+    _init_project_roots()
+    return list(_PROJECT_ROOTS)
+
+
+def _restore_roots(snapshot: list[Path]) -> None:
+    _PROJECT_ROOTS[:] = snapshot
+
 def _is_path_allowed(path: Path) -> bool:
     _init_project_roots()
     resolved = path.resolve()
@@ -34,7 +43,7 @@ def _is_path_allowed(path: Path) -> bool:
 
 
 @tool(
-    description="Run a shell command and return its output. Working directory is restricted to project root and ~/.huxley."
+    description="Run a shell command and return its output. The working directory is restricted to allowed roots, but commands can still access arbitrary absolute paths."
 )
 def bash(command: str, workdir: str = "", timeout: int = 30) -> str:
     cwd = Path(workdir).expanduser().resolve() if workdir else Path.cwd().resolve()
