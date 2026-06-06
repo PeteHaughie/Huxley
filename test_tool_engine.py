@@ -140,6 +140,9 @@ def test_execute_tool_call_without_id_uses_fallback_id():
     resp = svc.run_loop(model_fn, msgs, tools=svc.registry.definitions())
     assert resp["choices"][0]["message"]["content"] == "done"
     second_turn = model_inputs[1]
+    assistant_msgs = [m for m in second_turn if m.get("role") == "assistant"]
+    assert len(assistant_msgs) == 1
+    assert assistant_msgs[0]["tool_calls"][0]["id"] == "tool_call_0_0"
     tool_msgs = [m for m in second_turn if m.get("role") == "tool"]
     assert len(tool_msgs) == 1
     assert tool_msgs[0]["tool_call_id"] == "tool_call_0_0"
@@ -161,6 +164,20 @@ def test_max_turns_exhausted():
     msgs = [{"role": "user", "content": "loop"}]
     resp = svc.run_loop(model_fn, msgs, tools=[{"type": "function"}], max_turns=3)
     assert turn_count[0] == 3
+
+
+def test_non_positive_max_turns_runs_single_model_call():
+    turn_count = [0]
+
+    def model_fn(messages, **kw):
+        turn_count[0] += 1
+        return _make_model_response(content="done")
+
+    svc = ToolService()
+    msgs = [{"role": "user", "content": "hello"}]
+    resp = svc.run_loop(model_fn, msgs, tools=[{"type": "function"}], max_turns=0)
+    assert turn_count[0] == 1
+    assert resp["choices"][0]["message"]["content"] == "done"
 
 
 def test_unknown_tool_returns_error():
@@ -266,6 +283,9 @@ class ToolEngineTests(unittest.TestCase):
 
     def test_max_turns_exhausted(self):
         test_max_turns_exhausted()
+
+    def test_non_positive_max_turns_runs_single_model_call(self):
+        test_non_positive_max_turns_runs_single_model_call()
 
     def test_unknown_tool_returns_error(self):
         test_unknown_tool_returns_error()

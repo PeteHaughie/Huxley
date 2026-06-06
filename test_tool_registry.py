@@ -107,6 +107,44 @@ def skill_tool(name: str) -> str:
         reg_mod._skill_dirs = original_dirs
 
 
+def test_scan_skills_uses_unique_module_names_per_skills_root(tmp_path: Path):
+    agents_skill = tmp_path / ".agents" / "skills" / "common" / "tools"
+    huxley_skill = tmp_path / ".huxley" / "skills" / "common" / "tools"
+    agents_skill.mkdir(parents=True)
+    huxley_skill.mkdir(parents=True)
+
+    (agents_skill / "toolbox.py").write_text(
+        """
+from harness.tool.decorator import tool
+
+@tool()
+def from_agents() -> str:
+    return "agents"
+"""
+    )
+    (huxley_skill / "toolbox.py").write_text(
+        """
+from harness.tool.decorator import tool
+
+@tool()
+def from_huxley() -> str:
+    return "huxley"
+"""
+    )
+
+    import harness.tool.registry as reg_mod
+
+    original_dirs = reg_mod._skill_dirs
+    try:
+        reg_mod._skill_dirs = lambda: [tmp_path / ".agents" / "skills", tmp_path / ".huxley" / "skills"]
+        reg = ToolRegistry()
+        reg.scan_skills()
+        assert reg.has_tool("from_agents")
+        assert reg.has_tool("from_huxley")
+    finally:
+        reg_mod._skill_dirs = original_dirs
+
+
 import tempfile
 import unittest
 from inspect import signature

@@ -173,9 +173,10 @@ class AdversarialDevEngine:
 
         os.chdir(root)
 
-        from harness.tool.builtins.filesystem import allow_path as allow_fs_path
+        if self._tool_service.registry.has_tool("read_file"):
+            from harness.tool.builtins.filesystem import allow_path as allow_fs_path
 
-        allow_fs_path(root)
+            allow_fs_path(root)
         if self._tool_service.registry.has_tool("grep"):
             from harness.tool.builtins.search import allow_path as allow_search_path
 

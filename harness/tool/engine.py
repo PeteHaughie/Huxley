@@ -46,6 +46,8 @@ class ToolService:
 
         current = list(messages)
         max_turns = max_turns if max_turns is not None else self._max_turns
+        if max_turns <= 0:
+            return model_fn(messages=current, tools=tools)
 
         for turn in range(max_turns):
             resp = model_fn(messages=current, tools=tools)
@@ -55,20 +57,25 @@ class ToolService:
             if not msg.get("tool_calls"):
                 return resp
 
+            normalized_tool_calls = []
+            for idx, tc in enumerate(msg["tool_calls"]):
+                normalized_tc = dict(tc)
+                normalized_tc["id"] = normalized_tc.get("id") or f"tool_call_{turn}_{idx}"
+                normalized_tool_calls.append(normalized_tc)
+
             current.append(
                 {
                     "role": "assistant",
                     "content": msg.get("content"),
-                    "tool_calls": msg["tool_calls"],
+                    "tool_calls": normalized_tool_calls,
                 }
             )
-            for idx, tc in enumerate(msg["tool_calls"]):
+            for tc in normalized_tool_calls:
                 result = self._execute_tool_call(tc)
-                tool_call_id = tc.get("id") or f"tool_call_{turn}_{idx}"
                 current.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tool_call_id,
+                        "tool_call_id": tc["id"],
                         "content": result,
                     }
                 )

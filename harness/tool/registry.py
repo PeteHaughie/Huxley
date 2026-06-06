@@ -1,4 +1,5 @@
 from __future__ import annotations
+import hashlib
 import importlib
 import importlib.util
 import sys
@@ -63,10 +64,13 @@ class ToolRegistry:
         self._skills_scanned = True
 
     def _load_tools_from(self, tools_dir: Path):
+        root_key = hashlib.sha1(str(tools_dir.resolve()).encode("utf-8")).hexdigest()[:12]
         for py_file in sorted(tools_dir.glob("*.py")):
             if py_file.name.startswith("_"):
                 continue
-            mod_name = f"_skill_tools_{tools_dir.parent.name}_{py_file.stem}"
+            mod_name = (
+                f"_skill_tools_{root_key}_{tools_dir.parent.name}_{py_file.stem}"
+            )
             if mod_name in sys.modules:
                 has_tools = any(
                     getattr(entry.get("fn"), "__module__", None) == mod_name
