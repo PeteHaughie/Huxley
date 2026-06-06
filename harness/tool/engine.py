@@ -12,6 +12,11 @@ class ToolService:
         _cfg = tools_cfg or {}
         self._max_turns = int(_cfg.get("max_turns", 10))
         self._registry = registry or ToolRegistry(builtins_cfg=_cfg.get("builtins", {}))
+        for p in _cfg.get("path_whitelist", []):
+            from harness.tool.builtins import filesystem, search, shell
+            filesystem.allow_path(p)
+            search.allow_path(p)
+            shell.allow_path(p)
 
     @property
     def registry(self) -> ToolRegistry:

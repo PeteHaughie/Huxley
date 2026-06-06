@@ -17,7 +17,7 @@ def _init_project_roots():
 
 def allow_path(path: str):
     _init_project_roots()
-    p = Path(path).resolve()
+    p = Path(path).expanduser().resolve()
     if p not in _PROJECT_ROOTS:
         _PROJECT_ROOTS.append(p)
 

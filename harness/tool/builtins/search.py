@@ -17,7 +17,7 @@ def _init_project_roots():
 
 def allow_path(path: str):
     _init_project_roots()
-    p = Path(path).resolve()
+    p = Path(path).expanduser().resolve()
     if p not in _PROJECT_ROOTS:
         _PROJECT_ROOTS.append(p)
 
@@ -70,7 +70,7 @@ def grep(pattern: str, include: str = "", path: str = "") -> str:
         if not f.is_file():
             continue
         try:
-            if any(p.name.startswith(".") for p in f.parents):
+            if any(p.name.startswith(".") for p in f.relative_to(base).parents):
                 continue
             text = f.read_text(encoding="utf-8", errors="replace")
             for i, line in enumerate(text.splitlines(), 1):

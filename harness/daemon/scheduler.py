@@ -542,10 +542,13 @@ class SchedulerEngine:
                 if parent:
                     for peer in peers:
                         self._begin_peer_activity(peer, parent, "βγ", Level.TASK.value)
+                        task_payload = {"title": parent.title, "prompt": parent.prompt}
+                        if use_tools:
+                            task_payload["tools"] = True
                         resp = self._delegate_to_peer(
                             peer,
                             "/v1/tasks/execute",
-                            {"title": parent.title, "prompt": parent.prompt},
+                            task_payload,
                         )
                         if resp and "task_result" in resp:
                             self._end_peer_activity(peer, "completed")
