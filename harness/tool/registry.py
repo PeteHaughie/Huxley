@@ -25,7 +25,7 @@ class ToolRegistry:
         enabled_mods = []
         disabled_mods = []
         for cfg_key, mod_name in _BUILTIN_MODULES:
-            default = cfg_key != "shell"
+            default = _SHELL_DEFAULT if cfg_key == "shell" else True
             if builtins_cfg.get(cfg_key, default):
                 enabled_mods.append(mod_name)
             else:
@@ -33,7 +33,12 @@ class ToolRegistry:
 
         for mod_name in enabled_mods:
             if mod_name in sys.modules:
-                importlib.reload(sys.modules[mod_name])
+                has_tools = any(
+                    getattr(entry.get("fn"), "__module__", None) == mod_name
+                    for entry in _TOOL_REGISTRY.values()
+                )
+                if not has_tools:
+                    importlib.reload(sys.modules[mod_name])
             else:
                 importlib.import_module(mod_name)
 
@@ -68,6 +73,16 @@ class ToolRegistry:
                 continue
             mod_name = f"_skill_tools_{tools_dir.parent.name}_{py_file.stem}"
             if mod_name in sys.modules:
+                has_tools = any(
+                    getattr(entry.get("fn"), "__module__", None) == mod_name
+                    for entry in _TOOL_REGISTRY.values()
+                )
+                if has_tools:
+                    continue
+                try:
+                    importlib.reload(sys.modules[mod_name])
+                except Exception as e:
+                    print(f"\u03b3|tool|skill_load_err|{py_file.name}|{e}", flush=True)
                 continue
             try:
                 spec = importlib.util.spec_from_file_location(mod_name, py_file)

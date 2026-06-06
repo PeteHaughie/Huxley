@@ -202,7 +202,7 @@ class AdversarialDevEngine:
 
         final = self._adjudicator_round(task, code_result, history, max_rounds, roles)
         return {
-            "status": final.get("verdict", "unknown"),
+            "status": final.get("verdict", "unknown").lower(),
             "code_result": code_result,
             "rounds": max_rounds,
             "history": history,
