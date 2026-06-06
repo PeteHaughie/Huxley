@@ -95,6 +95,7 @@ class ToolRegistry:
                 sys.modules[mod_name] = mod
                 spec.loader.exec_module(mod)
             except Exception as e:
+                sys.modules.pop(mod_name, None)
                 print(f"\u03b3|tool|skill_load_err|{py_file.name}|{e}", flush=True)
 
     def definitions(self) -> list[dict]:

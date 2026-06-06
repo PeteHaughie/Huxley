@@ -326,6 +326,8 @@ def _inject_tool_calls(resp: dict) -> None:
     tcs, cleaned = _extract_tool_calls(content)
     if not tcs:
         return
+    if cleaned:
+        return
     msg["tool_calls"] = tcs
     msg["content"] = cleaned
 

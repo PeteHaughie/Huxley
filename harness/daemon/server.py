@@ -414,6 +414,8 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                     body.get("prompt", ""), "unit", use_tools=use_tools
                 )
                 self._send({"result": result})
+            except RuntimeError as e:
+                self._send_error_json(400, str(e))
             except Exception as e:
                 self._send({"error": str(e)}, 500)
         elif path == "/v1/tasks/execute":
@@ -424,6 +426,8 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                     body.get("title", ""), body.get("prompt", ""), use_tools=use_tools
                 )
                 self._send(result)
+            except RuntimeError as e:
+                self._send_error_json(400, str(e))
             except Exception as e:
                 self._send({"error": str(e)}, 500)
         elif path == "/v1/shutdown":
