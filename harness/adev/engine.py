@@ -105,19 +105,19 @@ def _parse_caste(raw: str | Caste) -> Caste:
 def _parse_review(text: str) -> dict:
     upper = text.strip().upper()
     verdict_line = [line for line in upper.split("\n") if "VERDICT:" in line]
-    approved_tokens = ("APPROVED", "APPROVE")
-    if verdict_line:
-        verdict = (
-            "APPROVED"
-            if any(token in verdict_line[0] for token in approved_tokens)
-            else "DENIED"
-        )
-    else:
-        verdict = (
-            "APPROVED"
-            if any(upper.startswith(token) for token in approved_tokens)
-            else "DENIED"
-        )
+    source = verdict_line[0] if verdict_line else upper
+    token = source.split("VERDICT:", 1)[1].strip() if "VERDICT:" in source else source
+    token = (token.split()[0] if token else "").strip(" :.-_")
+    verdict_map = {
+        "APPROVE": "APPROVED",
+        "APPROVED": "APPROVED",
+        "DENY": "DENIED",
+        "DENIED": "DENIED",
+        "REJECT": "REJECT",
+        "REJECTED": "REJECT",
+        "CONTINUE": "CONTINUE",
+    }
+    verdict = verdict_map.get(token, "DENIED")
     return {"verdict": verdict, "feedback": text}
 
 

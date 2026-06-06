@@ -45,6 +45,16 @@ class ParseReviewTests(TestCase):
         r = _parse_review("some feedback text")
         self.assertEqual(r["feedback"], "some feedback text")
 
+    def test_reject_verdict_tag(self):
+        from harness.adev.engine import _parse_review
+        r = _parse_review("VERDICT: REJECT\nNot acceptable")
+        self.assertEqual(r["verdict"], "REJECT")
+
+    def test_continue_verdict_tag(self):
+        from harness.adev.engine import _parse_review
+        r = _parse_review("VERDICT: CONTINUE\nTry one more round")
+        self.assertEqual(r["verdict"], "CONTINUE")
+
 
 class ParseCasteTests(TestCase):
     def test_parse_alpha_by_name(self):

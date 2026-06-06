@@ -96,6 +96,13 @@ class Router:
             isinstance(msg.payload, dict)
             and msg.payload.get("tools", False) is not False
         )
+        if requests_tools and not self._tools_enabled:
+            return Message(
+                caste=msg.caste,
+                action=Action.ROUTE,
+                payload={"error": "tool execution is disabled in configuration"},
+                session=msg.session,
+            )
         if requests_tools and not getattr(handler, "supports_tools", False):
             return Message(
                 caste=msg.caste,

@@ -191,6 +191,15 @@ def test_grep_fallback_skips_hidden_dirs(tmp_path: Path):
     assert ".hidden/secret.py" not in result
 
 
+def test_grep_fallback_does_not_skip_visible_top_level_files(tmp_path: Path):
+    search.allow_path(str(tmp_path))
+    visible = tmp_path / "visible.py"
+    visible.write_text("needle")
+    with patch("subprocess.run", side_effect=FileNotFoundError()):
+        result = search.grep("needle", path=str(tmp_path))
+    assert "visible.py" in result
+
+
 # -- shell tests --
 
 

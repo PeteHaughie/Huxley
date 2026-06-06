@@ -1,5 +1,6 @@
 from __future__ import annotations
 import inspect
+import types
 import typing
 from typing import Any, Callable, get_type_hints
 
@@ -15,13 +16,13 @@ def _py_type_to_json(tp: type) -> str:
         return "number"
     if tp is bool:
         return "boolean"
-    origin = getattr(tp, "__origin__", None)
+    origin = typing.get_origin(tp)
     if origin is list:
         return "array"
     if origin is dict:
         return "object"
-    if origin is typing.Union:
-        args = tp.__args__
+    if origin in (typing.Union, types.UnionType):
+        args = typing.get_args(tp)
         non_none = [a for a in args if a is not type(None)]
         if non_none:
             return _py_type_to_json(non_none[0])
@@ -48,13 +49,13 @@ def tool(name: str | None = None, description: str | None = None):
             else:
                 required.append(param_name)
             if param.annotation is not inspect.Parameter.empty:
-                origin = getattr(param_type, "__origin__", None)
+                origin = typing.get_origin(param_type)
                 if origin is list:
-                    args = getattr(param_type, "__args__", None)
+                    args = typing.get_args(param_type)
                     if args:
                         prop["items"] = {"type": _py_type_to_json(args[0])}
-                elif origin is typing.Union:
-                    args = getattr(param_type, "__args__", None)
+                elif origin in (typing.Union, types.UnionType):
+                    args = typing.get_args(param_type)
                     if args:
                         non_none = [a for a in args if a is not type(None)]
                         if non_none:

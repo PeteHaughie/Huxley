@@ -64,6 +64,16 @@ def test_tool_definition_json_schema():
     assert params["properties"]["active"].get("default") is True
 
 
+def test_tool_definition_json_schema_pep604_optional():
+    @tool()
+    def my_tool(count: int | None = None) -> str:
+        return f"{count}"
+
+    definition = get_registered_tools()["my_tool"]["definition"]
+    params = definition["function"]["parameters"]
+    assert params["properties"]["count"]["type"] == "integer"
+
+
 def test_tool_handler_execution():
     @tool()
     def add(a: int, b: int = 0) -> int:
@@ -122,6 +132,9 @@ class ToolDecoratorTests(unittest.TestCase):
 
     def test_tool_handler_execution(self):
         test_tool_handler_execution()
+
+    def test_tool_definition_json_schema_pep604_optional(self):
+        test_tool_definition_json_schema_pep604_optional()
 
     def test_get_registered_tools_returns_copy(self):
         test_get_registered_tools_returns_copy()

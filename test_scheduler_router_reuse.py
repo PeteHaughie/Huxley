@@ -3,6 +3,7 @@ import types
 import unittest
 from unittest.mock import patch
 
+from harness.comms.message import Action, Caste, Message
 from harness.comms.router import OpenAIRequestError, Router
 from harness.daemon.scheduler import SchedulerEngine, Schedule
 
@@ -149,6 +150,53 @@ class RouterOpenAIModelTests(unittest.TestCase):
 
         self.assertEqual(str(ctx.exception), "invalid response from alpha model backend")
         self.assertEqual(router._beta.calls, 0)
+
+    def test_dispatch_rejects_tool_request_when_tools_disabled_in_config(self):
+        class _FakeCaste:
+            supports_tools = True
+
+            def __init__(self, result_caste: Caste, call_counter: dict | None = None):
+                self._result_caste = result_caste
+                self._call_counter = call_counter
+
+            def infer(self, _msg):
+                if self._call_counter is not None:
+                    self._call_counter["count"] += 1
+                return Message(caste=self._result_caste, action=Action.INFER, payload={"result": "ok"})
+
+        gamma_calls = {"count": 0}
+        fake_alpha_module = types.ModuleType("harness.caste.alpha")
+        fake_beta_module = types.ModuleType("harness.caste.beta")
+        fake_gamma_module = types.ModuleType("harness.caste.gamma")
+        fake_alpha_module.Alpha = lambda tool_service=None: _FakeCaste(Caste.ALPHA)
+        fake_beta_module.Beta = lambda tool_service=None: _FakeCaste(Caste.BETA)
+        fake_gamma_module.Gamma = lambda tool_service=None: _FakeCaste(
+            Caste.GAMMA, call_counter=gamma_calls
+        )
+
+        with (
+            patch("harness.config.load_config", return_value={"tools": {"enabled": False}}),
+            patch.dict(
+                sys.modules,
+                {
+                    "harness.caste.alpha": fake_alpha_module,
+                    "harness.caste.beta": fake_beta_module,
+                    "harness.caste.gamma": fake_gamma_module,
+                },
+            ),
+        ):
+            router = Router()
+            resp = router.dispatch(
+                Message(
+                    caste=Caste.GAMMA,
+                    action=Action.INFER,
+                    payload={"prompt": "x", "tools": True},
+                )
+            )
+
+        self.assertIn("error", resp.payload)
+        self.assertIn("disabled", resp.payload["error"])
+        self.assertEqual(gamma_calls["count"], 0)
 
 
 class SchedulerSelfModTests(unittest.TestCase):
