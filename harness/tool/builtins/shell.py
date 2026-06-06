@@ -34,7 +34,7 @@ def _is_path_allowed(path: Path) -> bool:
 
 
 @tool(
-    description="Run a shell command and return its output. Restricted to project root and ~/.huxley."
+    description="Run a shell command and return its output. Working directory is restricted to project root and ~/.huxley."
 )
 def bash(command: str, workdir: str = "", timeout: int = 30) -> str:
     cwd = Path(workdir).expanduser().resolve() if workdir else Path.cwd().resolve()

@@ -1,5 +1,6 @@
 import json
 import unittest
+from pathlib import Path
 from harness.tool.engine import ToolService
 from harness.tool.registry import ToolRegistry
 from harness.tool.decorator import tool, clear_registered_tools
@@ -195,6 +196,13 @@ def test_tool_service_with_tools_kwarg():
     assert f"got {tool_count} tools" in resp["choices"][0]["message"]["content"]
 
 
+def test_path_whitelist_does_not_enable_disabled_shell_tool(tmp_path: Path):
+    registry = ToolRegistry(builtins_cfg={"shell": False})
+    assert registry.has_tool("bash") is False
+    svc = ToolService(registry=registry, tools_cfg={"path_whitelist": [str(tmp_path)]})
+    assert svc.registry.has_tool("bash") is False
+
+
 class ToolEngineTests(unittest.TestCase):
     def setUp(self):
         clear_registered_tools()
@@ -228,3 +236,9 @@ class ToolEngineTests(unittest.TestCase):
 
     def test_tool_service_with_tools_kwarg(self):
         test_tool_service_with_tools_kwarg()
+
+    def test_path_whitelist_does_not_enable_disabled_shell_tool(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as d:
+            test_path_whitelist_does_not_enable_disabled_shell_tool(Path(d))
