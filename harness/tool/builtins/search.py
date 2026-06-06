@@ -84,6 +84,8 @@ def grep(pattern: str, include: str = "", path: str = "") -> str:
             continue
         if not f.is_file():
             continue
+        if not _is_path_allowed(f):
+            continue
         try:
             rel_parts = f.relative_to(base).parts
             if any(part.startswith(".") for part in rel_parts[:-1]):

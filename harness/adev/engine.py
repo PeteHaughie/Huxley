@@ -34,7 +34,7 @@ Rules:
 - Follow existing code style and conventions
 - After implementing, summarize what you changed and list all files created/modified
 - DO NOT make unrelated changes
-- You can run bash commands if needed (build, test, lint)
+- Use available tools only; shell access may not be enabled
 """
 
 PROGRAMMER_SYSTEM_NO_TOOLS = """You are an expert programmer writing code.
