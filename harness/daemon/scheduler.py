@@ -312,7 +312,7 @@ class SchedulerEngine:
         with self._inference_lock:
             if self._router is None:
                 self._router = self._get_router()
-            if use_tools and self._router.tools_enabled:
+            if use_tools:
                 payload["tools"] = True
             msg = Message(
                 caste=caste,

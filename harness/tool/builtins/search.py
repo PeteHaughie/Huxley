@@ -63,6 +63,11 @@ def grep(pattern: str, include: str = "", path: str = "") -> str:
     except subprocess.TimeoutExpired:
         return f"grep timed out for pattern: {pattern}"
 
+    try:
+        compiled = re.compile(pattern)
+    except re.error as exc:
+        return f"Invalid regex pattern: {exc}"
+
     matches: list[str] = []
     for f in base.rglob("*"):
         if include and not glob_match(f.name, include):
@@ -75,7 +80,7 @@ def grep(pattern: str, include: str = "", path: str = "") -> str:
                 continue
             text = f.read_text(encoding="utf-8", errors="replace")
             for i, line in enumerate(text.splitlines(), 1):
-                if re.search(pattern, line):
+                if compiled.search(line):
                     rel = f.relative_to(base)
                     matches.append(f"{rel}:{i}:{line.rstrip()}")
         except Exception:

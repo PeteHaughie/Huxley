@@ -171,6 +171,8 @@ class AdversarialDevEngine:
         root = os.path.abspath(workdir or os.getcwd())
         previous_cwd = os.getcwd()
 
+        os.chdir(root)
+
         from harness.tool.builtins.filesystem import allow_path as allow_fs_path
 
         allow_fs_path(root)
@@ -182,7 +184,6 @@ class AdversarialDevEngine:
             from harness.tool.builtins.shell import allow_path as allow_shell_path
 
             allow_shell_path(root)
-        os.chdir(root)
         try:
             roles = self._resolve_roles(role_overrides) if role_overrides else self._roles
 
