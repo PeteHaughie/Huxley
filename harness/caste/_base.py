@@ -32,4 +32,4 @@ class CasteBase(ABC):
         payload = msg.payload
         if not isinstance(payload, dict):
             return False
-        return payload.get("tools", False) is not False
+        return bool(payload.get("tools"))

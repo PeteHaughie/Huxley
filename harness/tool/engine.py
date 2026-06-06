@@ -85,6 +85,8 @@ class ToolService:
                 args = raw_args
         except (json.JSONDecodeError, KeyError) as e:
             return f"Error: invalid tool call payload: {e}"
+        if not isinstance(args, dict):
+            return "Error: invalid tool call payload: arguments must be an object"
 
         handler = self._registry.get_handler(name)
         if handler is None:

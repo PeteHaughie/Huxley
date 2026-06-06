@@ -12,6 +12,8 @@ from harness.tool.decorator import _TOOL_REGISTRY, clear_registered_tools
 class ToolRegistry:
     def __init__(self, builtins_cfg: dict | None = None):
         self._skills_scanned = False
+        self._enabled_builtin_modules: set[str] = set()
+        self._builtin_modules: set[str] = set()
         self._load_builtins(builtins_cfg or {})
 
     def _load_builtins(self, builtins_cfg: dict):
@@ -21,15 +23,14 @@ class ToolRegistry:
             ("shell", "harness.tool.builtins.shell"),
         ]
         _SHELL_DEFAULT = False
+        self._builtin_modules = {mod_name for _, mod_name in _BUILTIN_MODULES}
 
         enabled_mods = []
-        disabled_mods = []
         for cfg_key, mod_name in _BUILTIN_MODULES:
             default = _SHELL_DEFAULT if cfg_key == "shell" else True
             if builtins_cfg.get(cfg_key, default):
                 enabled_mods.append(mod_name)
-            else:
-                disabled_mods.append(mod_name)
+        self._enabled_builtin_modules = set(enabled_mods)
 
         for mod_name in enabled_mods:
             if mod_name in sys.modules:
@@ -42,17 +43,11 @@ class ToolRegistry:
             else:
                 importlib.import_module(mod_name)
 
-        # Remove tools registered by disabled modules so that ToolRegistry
-        # instances created with a builtin disabled don't expose its tools
-        # even if the module was already imported by a prior instance.
-        for mod_name in disabled_mods:
-            tools_to_remove = [
-                name
-                for name, entry in list(_TOOL_REGISTRY.items())
-                if getattr(entry.get("fn"), "__module__", None) == mod_name
-            ]
-            for name in tools_to_remove:
-                del _TOOL_REGISTRY[name]
+    def _is_tool_enabled(self, entry: dict) -> bool:
+        module_name = getattr(entry.get("fn"), "__module__", None)
+        if module_name in self._builtin_modules:
+            return module_name in self._enabled_builtin_modules
+        return True
 
     def scan_skills(self):
         if self._skills_scanned:
@@ -95,19 +90,30 @@ class ToolRegistry:
                 print(f"\u03b3|tool|skill_load_err|{py_file.name}|{e}", flush=True)
 
     def definitions(self) -> list[dict]:
-        return [entry["definition"] for entry in _TOOL_REGISTRY.values()]
+        return [
+            entry["definition"]
+            for entry in _TOOL_REGISTRY.values()
+            if self._is_tool_enabled(entry)
+        ]
 
     def get_handler(self, name: str) -> Callable | None:
         entry = _TOOL_REGISTRY.get(name)
         if entry is None:
             return None
+        if not self._is_tool_enabled(entry):
+            return None
         return entry["fn"]
 
     def has_tool(self, name: str) -> bool:
-        return name in _TOOL_REGISTRY
+        entry = _TOOL_REGISTRY.get(name)
+        if entry is None:
+            return False
+        return self._is_tool_enabled(entry)
 
     def list_tools(self) -> list[str]:
-        return sorted(_TOOL_REGISTRY.keys())
+        return sorted(
+            name for name, entry in _TOOL_REGISTRY.items() if self._is_tool_enabled(entry)
+        )
 
     @staticmethod
     def reset():

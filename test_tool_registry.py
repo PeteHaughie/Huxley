@@ -24,6 +24,14 @@ def test_shell_tools_require_opt_in():
     assert "bash" in reg.list_tools()
 
 
+def test_shell_disable_does_not_mutate_other_registry_instances():
+    reg_enabled = ToolRegistry(builtins_cfg={"shell": True})
+    assert reg_enabled.has_tool("bash")
+    reg_disabled = ToolRegistry(builtins_cfg={"shell": False})
+    assert not reg_disabled.has_tool("bash")
+    assert reg_enabled.has_tool("bash")
+
+
 def test_registry_definitions_are_openai_compatible():
     reg = ToolRegistry()
     defs = reg.definitions()

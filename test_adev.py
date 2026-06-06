@@ -240,6 +240,28 @@ class AdversarialDevEngineTests(TestCase):
         self.assertEqual(result["code_result"], "local result")
         self.assertEqual(len(router.calls), 2)
 
+    def test_run_switches_to_workdir_and_restores_cwd(self):
+        import os
+        import tempfile
+        from harness.adev.engine import AdversarialDevEngine
+
+        seen_cwds: list[str] = []
+
+        def fake_delegate(cfg, prompt):
+            seen_cwds.append(os.getcwd())
+            if "harsh but fair code reviewer" in prompt:
+                return "VERDICT: APPROVED"
+            return "implemented"
+
+        original_cwd = os.getcwd()
+        with tempfile.TemporaryDirectory() as d:
+            engine = AdversarialDevEngine(router=FakeRouter(), delegate=fake_delegate)
+            engine.run(task="feature", workdir=d, max_rounds=1)
+
+        self.assertGreaterEqual(len(seen_cwds), 2)
+        self.assertTrue(all(cwd == os.path.abspath(d) for cwd in seen_cwds))
+        self.assertEqual(os.getcwd(), original_cwd)
+
 
 class CLITests(TestCase):
     def test_adev_parser_added(self):

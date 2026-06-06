@@ -179,6 +179,18 @@ def test_tool_invalid_json_arguments():
     assert "Error: invalid tool call payload" in err
 
 
+def test_tool_rejects_non_object_arguments():
+    service = ToolService()
+    for raw_args in ("null", "[]", ["x"], None):
+        err = service._execute_tool_call(
+            {
+                "id": "call_1",
+                "function": {"name": "test", "arguments": raw_args},
+            }
+        )
+        assert "Error: invalid tool call payload" in err
+
+
 def test_tool_service_with_tools_kwarg():
     @tool()
     def hello(name: str) -> str:
@@ -233,6 +245,9 @@ class ToolEngineTests(unittest.TestCase):
 
     def test_tool_invalid_json_arguments(self):
         test_tool_invalid_json_arguments()
+
+    def test_tool_rejects_non_object_arguments(self):
+        test_tool_rejects_non_object_arguments()
 
     def test_tool_service_with_tools_kwarg(self):
         test_tool_service_with_tools_kwarg()

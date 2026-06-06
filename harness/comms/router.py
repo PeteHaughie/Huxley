@@ -92,10 +92,7 @@ class Router:
                 payload={"error": f"unknown caste: {msg.caste}"},
                 session=msg.session,
             )
-        requests_tools = (
-            isinstance(msg.payload, dict)
-            and msg.payload.get("tools", False) is not False
-        )
+        requests_tools = isinstance(msg.payload, dict) and bool(msg.payload.get("tools"))
         if requests_tools and not self._tools_enabled:
             return Message(
                 caste=msg.caste,

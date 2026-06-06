@@ -168,7 +168,8 @@ class AdversarialDevEngine:
         max_rounds: int = 5,
         **role_overrides,
     ) -> dict:
-        root = workdir or os.getcwd()
+        root = os.path.abspath(workdir or os.getcwd())
+        previous_cwd = os.getcwd()
 
         from harness.tool.builtins.filesystem import allow_path as allow_fs_path
 
@@ -181,33 +182,37 @@ class AdversarialDevEngine:
             from harness.tool.builtins.shell import allow_path as allow_shell_path
 
             allow_shell_path(root)
-        roles = self._resolve_roles(role_overrides) if role_overrides else self._roles
+        os.chdir(root)
+        try:
+            roles = self._resolve_roles(role_overrides) if role_overrides else self._roles
 
-        history: list[dict] = []
-        code_result = ""
+            history: list[dict] = []
+            code_result = ""
 
-        for round_ in range(1, max_rounds + 1):
-            code_result = self._programmer_round(task, history, round_, roles)
-            review = self._roaster_round(task, code_result, roles)
+            for round_ in range(1, max_rounds + 1):
+                code_result = self._programmer_round(task, history, round_, roles)
+                review = self._roaster_round(task, code_result, roles)
 
-            if review["verdict"] == "APPROVED":
-                return {
-                    "status": "approved",
-                    "code_result": code_result,
-                    "rounds": round_,
-                    "history": history,
-                }
+                if review["verdict"] == "APPROVED":
+                    return {
+                        "status": "approved",
+                        "code_result": code_result,
+                        "rounds": round_,
+                        "history": history,
+                    }
 
-            history.append(review)
+                history.append(review)
 
-        final = self._adjudicator_round(task, code_result, history, max_rounds, roles)
-        return {
-            "status": final.get("verdict", "unknown").lower(),
-            "code_result": code_result,
-            "rounds": max_rounds,
-            "history": history,
-            "adjudication": final.get("feedback", ""),
-        }
+            final = self._adjudicator_round(task, code_result, history, max_rounds, roles)
+            return {
+                "status": final.get("verdict", "unknown").lower(),
+                "code_result": code_result,
+                "rounds": max_rounds,
+                "history": history,
+                "adjudication": final.get("feedback", ""),
+            }
+        finally:
+            os.chdir(previous_cwd)
 
     def _programmer_round(
         self, task: str, history: list[dict], round_: int, roles: dict
