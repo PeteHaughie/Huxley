@@ -80,7 +80,10 @@ class ToolService:
                     }
                 )
 
-        return resp
+        # max_turns exhausted while model still requesting tool calls; make one
+        # final call without tools so the model can produce a text completion
+        # based on the accumulated tool results.
+        return model_fn(messages=current)
 
     def _execute_tool_call(self, tool_call: dict) -> str:
         try:

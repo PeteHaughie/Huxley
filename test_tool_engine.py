@@ -153,6 +153,10 @@ def test_max_turns_exhausted():
 
     def model_fn(messages, **kw):
         turn_count[0] += 1
+        # Always return a tool call so the loop never exits early.
+        # On the final (tool-less) call the engine passes no 'tools' kwarg,
+        # but model_fn still returns a tool_calls response here; that's fine
+        # because run_loop doesn't inspect the final response.
         tc = {
             "id": f"call_{turn_count[0]}",
             "type": "function",
@@ -163,7 +167,9 @@ def test_max_turns_exhausted():
     svc = ToolService()
     msgs = [{"role": "user", "content": "loop"}]
     resp = svc.run_loop(model_fn, msgs, tools=[{"type": "function"}], max_turns=3)
-    assert turn_count[0] == 3
+    # max_turns iterations with tools + 1 final call without tools to produce
+    # a text completion from the accumulated tool results.
+    assert turn_count[0] == 4
 
 
 def test_non_positive_max_turns_runs_single_model_call():

@@ -188,32 +188,34 @@ class AdversarialDevEngine:
         previous_cwd = os.getcwd()
 
         roots_restores: list[tuple] = []
-        if self._tool_service.registry.has_tool("read_file"):
-            from harness.tool.builtins.filesystem import (
-                allow_path as allow_fs_path,
-                _snapshot_roots as _fs_snapshot,
-                _restore_roots as _fs_restore,
-            )
-            roots_restores.append((_fs_snapshot(), _fs_restore))
-            allow_fs_path(root)
-        if self._tool_service.registry.has_tool("grep"):
-            from harness.tool.builtins.search import (
-                allow_path as allow_search_path,
-                _snapshot_roots as _search_snapshot,
-                _restore_roots as _search_restore,
-            )
-            roots_restores.append((_search_snapshot(), _search_restore))
-            allow_search_path(root)
-        if self._tool_service.registry.has_tool("bash"):
-            from harness.tool.builtins.shell import (
-                allow_path as allow_shell_path,
-                _snapshot_roots as _shell_snapshot,
-                _restore_roots as _shell_restore,
-            )
-            roots_restores.append((_shell_snapshot(), _shell_restore))
-            allow_shell_path(root)
         try:
+            # chdir first so _init_project_roots() picks up the workdir as the
+            # default project root rather than the previous working directory.
             os.chdir(root)
+            if self._tool_service.registry.has_tool("read_file"):
+                from harness.tool.builtins.filesystem import (
+                    allow_path as allow_fs_path,
+                    _snapshot_roots as _fs_snapshot,
+                    _restore_roots as _fs_restore,
+                )
+                roots_restores.append((_fs_snapshot(), _fs_restore))
+                allow_fs_path(root)
+            if self._tool_service.registry.has_tool("grep"):
+                from harness.tool.builtins.search import (
+                    allow_path as allow_search_path,
+                    _snapshot_roots as _search_snapshot,
+                    _restore_roots as _search_restore,
+                )
+                roots_restores.append((_search_snapshot(), _search_restore))
+                allow_search_path(root)
+            if self._tool_service.registry.has_tool("bash"):
+                from harness.tool.builtins.shell import (
+                    allow_path as allow_shell_path,
+                    _snapshot_roots as _shell_snapshot,
+                    _restore_roots as _shell_restore,
+                )
+                roots_restores.append((_shell_snapshot(), _shell_restore))
+                allow_shell_path(root)
             roles = self._resolve_roles(role_overrides) if role_overrides else self._roles
 
             history: list[dict] = []
