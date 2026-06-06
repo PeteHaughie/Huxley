@@ -118,6 +118,33 @@ def test_execute_multiple_tool_calls_in_one_turn():
     assert len(assistant_tool_msgs[0]["tool_calls"]) == 2
 
 
+def test_execute_tool_call_without_id_uses_fallback_id():
+    model_inputs = []
+
+    @tool()
+    def echo(text: str) -> str:
+        return text
+
+    def model_fn(messages, **kw):
+        model_inputs.append(messages)
+        if any(m.get("role") == "tool" for m in messages):
+            return _make_model_response(content="done")
+        tc = {
+            "type": "function",
+            "function": {"name": "echo", "arguments": json.dumps({"text": "hi"})},
+        }
+        return _make_model_response(tool_calls=[tc])
+
+    svc = ToolService()
+    msgs = [{"role": "user", "content": "say hi"}]
+    resp = svc.run_loop(model_fn, msgs, tools=svc.registry.definitions())
+    assert resp["choices"][0]["message"]["content"] == "done"
+    second_turn = model_inputs[1]
+    tool_msgs = [m for m in second_turn if m.get("role") == "tool"]
+    assert len(tool_msgs) == 1
+    assert tool_msgs[0]["tool_call_id"] == "tool_call_0_0"
+
+
 def test_max_turns_exhausted():
     turn_count = [0]
 
@@ -233,6 +260,9 @@ class ToolEngineTests(unittest.TestCase):
 
     def test_execute_multiple_tool_calls_in_one_turn(self):
         test_execute_multiple_tool_calls_in_one_turn()
+
+    def test_execute_tool_call_without_id_uses_fallback_id(self):
+        test_execute_tool_call_without_id_uses_fallback_id()
 
     def test_max_turns_exhausted(self):
         test_max_turns_exhausted()

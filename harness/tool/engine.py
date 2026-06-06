@@ -62,12 +62,13 @@ class ToolService:
                     "tool_calls": msg["tool_calls"],
                 }
             )
-            for tc in msg["tool_calls"]:
+            for idx, tc in enumerate(msg["tool_calls"]):
                 result = self._execute_tool_call(tc)
+                tool_call_id = tc.get("id") or f"tool_call_{turn}_{idx}"
                 current.append(
                     {
                         "role": "tool",
-                        "tool_call_id": tc["id"],
+                        "tool_call_id": tool_call_id,
                         "content": result,
                     }
                 )
