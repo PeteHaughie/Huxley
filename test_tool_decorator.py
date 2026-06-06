@@ -93,3 +93,38 @@ def test_clear_registered_tools_clears():
     assert "my_tool" in get_registered_tools()
     clear_registered_tools()
     assert "my_tool" not in get_registered_tools()
+
+
+import unittest
+
+
+class ToolDecoratorTests(unittest.TestCase):
+    def setUp(self):
+        clear_registered_tools()
+
+    def tearDown(self):
+        clear_registered_tools()
+
+    def test_tool_decorator_registers_function(self):
+        test_tool_decorator_registers_function()
+
+    def test_tool_decorator_custom_name(self):
+        test_tool_decorator_custom_name()
+
+    def test_tool_decorator_custom_description(self):
+        test_tool_decorator_custom_description()
+
+    def test_tool_definition_uses_docstring(self):
+        test_tool_definition_uses_docstring()
+
+    def test_tool_definition_json_schema(self):
+        test_tool_definition_json_schema()
+
+    def test_tool_handler_execution(self):
+        test_tool_handler_execution()
+
+    def test_get_registered_tools_returns_copy(self):
+        test_get_registered_tools_returns_copy()
+
+    def test_clear_registered_tools_clears(self):
+        test_clear_registered_tools_clears()

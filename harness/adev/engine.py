@@ -48,7 +48,7 @@ Rules:
 
 ROASTER_SYSTEM = """You are a harsh but fair code reviewer. Review code changes and identify issues.
 
-Inspect the codebase using your read-only tools (read_file, grep, glob_files, list_directory).
+Inspect the codebase using your tools (read_file, grep, glob_files, list_directory).
 Evaluate for:
 - Correctness: Does the code work? Are there bugs or edge cases?
 - Security: Any vulnerabilities?

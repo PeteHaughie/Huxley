@@ -97,3 +97,27 @@ def skill_tool(name: str) -> str:
         assert handler("world") == "hello world"
     finally:
         reg_mod._skill_dirs = original_dirs
+
+
+import tempfile
+import unittest
+from inspect import signature
+
+
+def _run_test(fn):
+    try:
+        if "tmp_path" in signature(fn).parameters:
+            with tempfile.TemporaryDirectory() as d:
+                fn(Path(d))
+        else:
+            fn()
+    finally:
+        teardown_function()
+
+
+def load_tests(loader, tests, pattern):  # pragma: no cover
+    suite = unittest.TestSuite()
+    for name, fn in sorted(globals().items()):
+        if name.startswith("test_") and callable(fn):
+            suite.addTest(unittest.FunctionTestCase(lambda fn=fn: _run_test(fn), description=name))
+    return suite

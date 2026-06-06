@@ -66,10 +66,10 @@ class ParseCasteTests(TestCase):
 
 
 class RoleConfigTests(TestCase):
-    def test_default_roles_use_alpha_and_beta(self):
+    def test_default_roles_castes(self):
         from harness.adev.engine import DEFAULT_ROLES, Caste
-        self.assertEqual(DEFAULT_ROLES["programmer"].caste, Caste.ALPHA)
-        self.assertEqual(DEFAULT_ROLES["roaster"].caste, Caste.ALPHA)
+        self.assertEqual(DEFAULT_ROLES["programmer"].caste, Caste.GAMMA)
+        self.assertEqual(DEFAULT_ROLES["roaster"].caste, Caste.GAMMA)
         self.assertEqual(DEFAULT_ROLES["adjudicator"].caste, Caste.ALPHA)
 
     def test_resolve_roles_overrides_caste(self):
@@ -79,7 +79,7 @@ class RoleConfigTests(TestCase):
             "adjudicator": {"caste": "gamma"},
         })
         self.assertEqual(roles["programmer"].caste, Caste.ALPHA)
-        self.assertEqual(roles["roaster"].caste, Caste.ALPHA)
+        self.assertEqual(roles["roaster"].caste, Caste.GAMMA)
         self.assertEqual(roles["adjudicator"].caste, Caste.GAMMA)
 
     def test_resolve_roles_overrides_tokens(self):
@@ -197,7 +197,7 @@ class AdversarialDevEngineTests(TestCase):
         engine.run(task="feature", max_rounds=1, programmer={"caste": "alpha"})
 
         self.assertEqual(router.calls[0].caste, Caste.ALPHA)
-        self.assertEqual(router.calls[1].caste, Caste.ALPHA)
+        self.assertEqual(router.calls[1].caste, Caste.GAMMA)
 
     def test_delegate_called_when_provided(self):
         from harness.adev.engine import AdversarialDevEngine

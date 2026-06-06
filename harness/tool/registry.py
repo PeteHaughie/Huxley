@@ -15,18 +15,39 @@ class ToolRegistry:
         self._load_builtins(builtins_cfg or {})
 
     def _load_builtins(self, builtins_cfg: dict):
-        mod_names = []
-        if builtins_cfg.get("filesystem", True):
-            mod_names.append("harness.tool.builtins.filesystem")
-        if builtins_cfg.get("search", True):
-            mod_names.append("harness.tool.builtins.search")
-        if builtins_cfg.get("shell", False):
-            mod_names.append("harness.tool.builtins.shell")
-        for mod_name in mod_names:
+        _BUILTIN_MODULES = [
+            ("filesystem", "harness.tool.builtins.filesystem"),
+            ("search", "harness.tool.builtins.search"),
+            ("shell", "harness.tool.builtins.shell"),
+        ]
+        _SHELL_DEFAULT = False
+
+        enabled_mods = []
+        disabled_mods = []
+        for cfg_key, mod_name in _BUILTIN_MODULES:
+            default = cfg_key != "shell"
+            if builtins_cfg.get(cfg_key, default):
+                enabled_mods.append(mod_name)
+            else:
+                disabled_mods.append(mod_name)
+
+        for mod_name in enabled_mods:
             if mod_name in sys.modules:
                 importlib.reload(sys.modules[mod_name])
             else:
                 importlib.import_module(mod_name)
+
+        # Remove tools registered by disabled modules so that ToolRegistry
+        # instances created with a builtin disabled don't expose its tools
+        # even if the module was already imported by a prior instance.
+        for mod_name in disabled_mods:
+            tools_to_remove = [
+                name
+                for name, entry in list(_TOOL_REGISTRY.items())
+                if getattr(entry.get("fn"), "__module__", None) == mod_name
+            ]
+            for name in tools_to_remove:
+                del _TOOL_REGISTRY[name]
 
     def scan_skills(self):
         if self._skills_scanned:

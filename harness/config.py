@@ -74,7 +74,7 @@ DEFAULT_CONFIG = {
             "search": True,
             "shell": False,
         },
-        "path_whitelist": ["{{project_root}}", "~/.huxley"],
+        "path_whitelist": ["~/.huxley"],
     },
     "harness": {
         "context_hint": "caveman",
