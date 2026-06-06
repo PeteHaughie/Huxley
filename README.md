@@ -62,7 +62,7 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 | Caste | Model | Engine | Context | Role |
 |-------|-------|--------|---------|------|
 | γ | Apple Foundation Model | [Apfel](https://github.com/Arthur-Ficial/apfel) | 4K | File I/O, classification, extraction, grep generation. Stateless, disposable. |
-| β | [Ternary Bonsai 8B](https://prismml.com/news/ternary-bonsai) | MLX (primary) / llama.cpp (fallback) | 8K | Summarisation, routing, task decomposition. Short-term context only. |
+| β | [Ternary Bonsai 8B](https://prismml.com/news/ternary-bonsai) | llama.cpp | 8K | Summarisation, routing, task decomposition. Short-term context only. |
 | α | [Gemma 4 e4B](https://ai.google.dev/gemma) 4bit | llama.cpp + MTP + TurboQuant | 32K | Orchestration, HCI, long-term memory, skill dispatch, cloud routing. |
 
 ### Job Board
@@ -136,15 +136,13 @@ GGUF models are stored in `~/.huxley/models/` — a central, harness-managed dir
 |-------|------|-------|
 | Gemma 4 e4B (main) | `~/.huxley/models/gemma-4-e4b-Q4_K_M.gguf` | α |
 | Gemma 4 e4B draft (MTP) | `~/.huxley/models/gemma-4-e4b-draft.gguf` | α |
-| Ternary Bonsai 8B (llama.cpp fallback) | `~/.huxley/models/ternary-bonsai-8b.gguf` | β |
+| Ternary Bonsai 8B | `~/.huxley/models/ternary-bonsai-8b.gguf` | β |
 
 ```bash
 # List models in the models directory
 huxley models
 # γ|model|gemma-4-e4b-Q4_K_M.gguf|5.2G
 ```
-
-MLX models (primary Beta engine) are cached by MLX in its own Hugging Face cache — no extra management needed.
 
 Model paths in `~/.huxley/config.yaml` use `~` expansion and are resolved at load time.
 
@@ -836,7 +834,7 @@ Huxley/
 │   │   ├── _base.py         # CasteBase ABC
 │   │   ├── apfeld.py        # Apfel lifecycle (auto-start, PID tracking)
 │   │   ├── gamma.py         # Apfel integration
-│   │   ├── beta.py          # Bonsai Ternary / MLX / llama.cpp integration
+│   │   ├── beta.py          # Bonsai Ternary / llama.cpp integration
 │   │   └── alpha.py         # Gemma 4 / llama.cpp integration
 │   ├── comms/
 │   │   ├── __init__.py
