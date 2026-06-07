@@ -6,7 +6,12 @@ import http.server
 import ipaddress
 import urllib.parse
 from collections.abc import Iterator
-from harness.daemon.scheduler import SchedulerEngine, Schedule, _ensure_scheduler_dir, _peer_table
+from harness.daemon.scheduler import (
+    SchedulerEngine,
+    Schedule,
+    _ensure_scheduler_dir,
+    _peer_table,
+)
 from harness.board import JobBoard, State
 from harness.comms.router import OpenAIRequestError
 from harness.config import load_config
@@ -48,7 +53,9 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         return parsed.path.rstrip("/") or "/", urllib.parse.parse_qs(parsed.query)
 
-    def _send_error_json(self, status: int, message: str, error_type: str = "invalid_request_error"):
+    def _send_error_json(
+        self, status: int, message: str, error_type: str = "invalid_request_error"
+    ):
         self._send({"error": {"message": message, "type": error_type}}, status=status)
 
     def _begin_sse(self):
@@ -90,7 +97,9 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             ip = ipaddress.ip_address(host)
         except ValueError:
             return False
-        return ip.is_loopback or (getattr(ip, "ipv4_mapped", None) is not None and ip.ipv4_mapped.is_loopback)
+        return ip.is_loopback or (
+            getattr(ip, "ipv4_mapped", None) is not None and ip.ipv4_mapped.is_loopback
+        )
 
     def _is_loopback_client(self) -> bool:
         return self._is_loopback_host(self.client_address[0])
@@ -121,7 +130,11 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 self._send_error_json(404, "not found", error_type="not_found_error")
                 return
             if self._localhost_only() and not self._is_loopback_client():
-                self._send_error_json(403, "OpenAI-compatible API is restricted to localhost", error_type="permission_error")
+                self._send_error_json(
+                    403,
+                    "OpenAI-compatible API is restricted to localhost",
+                    error_type="permission_error",
+                )
                 return
             self._send({"object": "list", "data": _scheduler.openai_models()})
         elif path == "/v1/status":
@@ -129,18 +142,20 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
             api_cfg = load_config().get("api")
             api_cfg = api_cfg if isinstance(api_cfg, dict) else {}
             daemon_url = f"http://127.0.0.1:{self.server.server_port}/v1"
-            self._send({
-                "running": True,
-                "scheduler_running": _scheduler.running,
-                "schedules": len(schedules),
-                "uptime": None,
-                "openai_api": {
-                    "enabled": api_cfg.get("enabled", True),
-                    "localhost_only": api_cfg.get("localhost_only", True),
-                    "url": daemon_url,
-                    "models": [m["id"] for m in _scheduler.openai_models()],
-                },
-            })
+            self._send(
+                {
+                    "running": True,
+                    "scheduler_running": _scheduler.running,
+                    "schedules": len(schedules),
+                    "uptime": None,
+                    "openai_api": {
+                        "enabled": api_cfg.get("enabled", True),
+                        "localhost_only": api_cfg.get("localhost_only", True),
+                        "url": daemon_url,
+                        "models": [m["id"] for m in _scheduler.openai_models()],
+                    },
+                }
+            )
         elif path == "/v1/schedules":
             self._send([s.to_dict() for s in _scheduler.list_schedules()])
         elif path.startswith("/v1/schedules/"):
@@ -171,15 +186,18 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/v1/swarm/status":
             from harness.swarm.discovery import _lan_ips
             import socket
+
             ips = _lan_ips()
-            self._send({
-                "enabled": True,
-                "hostname": socket.gethostname(),
-                "lan_ip": ips[0] if ips else "?",
-                "port": DAEMON_PORT,
-                "peers": _peer_table.count(),
-                "active_peers": len(_peer_table.list_active()),
-            })
+            self._send(
+                {
+                    "enabled": True,
+                    "hostname": socket.gethostname(),
+                    "lan_ip": ips[0] if ips else "?",
+                    "port": DAEMON_PORT,
+                    "peers": _peer_table.count(),
+                    "active_peers": len(_peer_table.list_active()),
+                }
+            )
         else:
             self._send({"error": "not found"}, 404)
 
@@ -190,7 +208,11 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 self._send_error_json(404, "not found", error_type="not_found_error")
                 return
             if self._localhost_only() and not self._is_loopback_client():
-                self._send_error_json(403, "OpenAI-compatible API is restricted to localhost", error_type="permission_error")
+                self._send_error_json(
+                    403,
+                    "OpenAI-compatible API is restricted to localhost",
+                    error_type="permission_error",
+                )
                 return
             content_type = self.headers.get_content_type()
             if content_type != "application/json":
@@ -198,7 +220,9 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 return
             origin = self.headers.get("Origin", "").strip()
             if origin and not self._is_loopback_origin(origin):
-                self._send_error_json(403, "Origin is not allowed", error_type="permission_error")
+                self._send_error_json(
+                    403, "Origin is not allowed", error_type="permission_error"
+                )
                 return
             try:
                 body = self._read_body()
@@ -248,11 +272,19 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 self._send_error_json(400, "temperature must be numeric")
                 return
             if not math.isfinite(temperature) or temperature < 0:
-                self._send_error_json(400, "temperature must be finite and non-negative")
+                self._send_error_json(
+                    400, "temperature must be finite and non-negative"
+                )
                 return
             request_options = {
                 key: body[key]
-                for key in ("tools", "tool_choice", "functions", "function_call", "response_format")
+                for key in (
+                    "tools",
+                    "tool_choice",
+                    "functions",
+                    "function_call",
+                    "response_format",
+                )
                 if key in body
             }
             stream = body.get("stream", False)
@@ -286,11 +318,17 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                     return
                 except RuntimeError as e:
                     print(f"γ|huxleyd|openai_stream_err|{e}", flush=True)
-                    self._send_error_json(503, "service temporarily unavailable", error_type="server_error")
+                    self._send_error_json(
+                        503,
+                        "service temporarily unavailable",
+                        error_type="server_error",
+                    )
                     return
                 except Exception as e:
                     print(f"γ|huxleyd|openai_stream_err|{e}", flush=True)
-                    self._send_error_json(500, "internal server error", error_type="server_error")
+                    self._send_error_json(
+                        500, "internal server error", error_type="server_error"
+                    )
                     return
                 try:
                     self._begin_sse()
@@ -302,7 +340,9 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                     return
                 except OpenAIRequestError as e:
                     try:
-                        self._write_sse_event({"error": {"message": str(e), "type": e.error_type}})
+                        self._write_sse_event(
+                            {"error": {"message": str(e), "type": e.error_type}}
+                        )
                         self._write_sse_event("[DONE]")
                     except (BrokenPipeError, ConnectionResetError):
                         pass
@@ -310,7 +350,12 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                     print(f"γ|huxleyd|openai_stream_err|{e}", flush=True)
                     try:
                         self._write_sse_event(
-                            {"error": {"message": "internal server error", "type": "server_error"}}
+                            {
+                                "error": {
+                                    "message": "internal server error",
+                                    "type": "server_error",
+                                }
+                            }
                         )
                         self._write_sse_event("[DONE]")
                     except (BrokenPipeError, ConnectionResetError):
@@ -336,18 +381,25 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
                 return
             except RuntimeError as e:
                 print(f"γ|huxleyd|openai_err|{e}", flush=True)
-                self._send_error_json(503, "service temporarily unavailable", error_type="server_error")
+                self._send_error_json(
+                    503, "service temporarily unavailable", error_type="server_error"
+                )
                 return
             except Exception as e:
                 print(f"γ|huxleyd|openai_err|{e}", flush=True)
-                self._send_error_json(500, "internal server error", error_type="server_error")
+                self._send_error_json(
+                    500, "internal server error", error_type="server_error"
+                )
                 return
             self._send(response)
         elif path == "/v1/schedules":
             body = self._read_body()
             s = Schedule(
                 when=body.get("when", {"type": "interval", "every": 3600}),
-                action=body.get("action", {"type": "post_to_board", "level": "task", "title": "scheduled"}),
+                action=body.get(
+                    "action",
+                    {"type": "post_to_board", "level": "task", "title": "scheduled"},
+                ),
                 enabled=body.get("enabled", True),
                 title=body.get("title", ""),
                 missed_behaviour=body.get("missed_behaviour", "skip"),
@@ -357,15 +409,25 @@ class DaemonHandler(http.server.BaseHTTPRequestHandler):
         elif path == "/v1/units/execute":
             body = self._read_body()
             try:
-                result = _scheduler.infer(body.get("prompt", ""), "unit")
+                use_tools = body.get("tools", False)
+                result = _scheduler.infer(
+                    body.get("prompt", ""), "unit", use_tools=use_tools
+                )
                 self._send({"result": result})
+            except RuntimeError as e:
+                self._send_error_json(400, str(e))
             except Exception as e:
                 self._send({"error": str(e)}, 500)
         elif path == "/v1/tasks/execute":
             body = self._read_body()
             try:
-                result = _scheduler.execute_task(body.get("title", ""), body.get("prompt", ""))
+                use_tools = body.get("tools", False)
+                result = _scheduler.execute_task(
+                    body.get("title", ""), body.get("prompt", ""), use_tools=use_tools
+                )
                 self._send(result)
+            except RuntimeError as e:
+                self._send_error_json(400, str(e))
             except Exception as e:
                 self._send({"error": str(e)}, 500)
         elif path == "/v1/shutdown":

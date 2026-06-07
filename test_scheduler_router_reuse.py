@@ -3,6 +3,7 @@ import types
 import unittest
 from unittest.mock import patch
 
+from harness.comms.message import Action, Caste, Message
 from harness.comms.router import OpenAIRequestError, Router
 from harness.daemon.scheduler import SchedulerEngine, Schedule
 
@@ -61,11 +62,11 @@ class RouterOpenAIModelTests(unittest.TestCase):
 
     def test_beta_tool_calling_raises_request_error_for_json_and_streaming(self):
         fake_alpha_module = types.ModuleType("harness.caste.alpha")
-        fake_alpha_module.Alpha = lambda: object()
+        fake_alpha_module.Alpha = lambda tool_service=None: object()
         fake_beta_module = types.ModuleType("harness.caste.beta")
-        fake_beta_module.Beta = lambda: object()
+        fake_beta_module.Beta = lambda tool_service=None: object()
         fake_gamma_module = types.ModuleType("harness.caste.gamma")
-        fake_gamma_module.Gamma = lambda: object()
+        fake_gamma_module.Gamma = lambda tool_service=None: object()
         with (
             patch("harness.config.load_config", return_value={}),
             patch.dict(
@@ -105,11 +106,13 @@ class RouterOpenAIModelTests(unittest.TestCase):
 
     def test_alpha_invalid_response_does_not_fallback_to_beta(self):
         class FakeAlpha:
+            def __init__(self, tool_service=None):
+                pass
             def complete_chat(self, *_args, **_kwargs):
                 return "not-a-dict"
 
         class FakeBeta:
-            def __init__(self):
+            def __init__(self, tool_service=None):
                 self.calls = 0
 
             def complete_chat(self, *_args, **_kwargs):
@@ -117,7 +120,8 @@ class RouterOpenAIModelTests(unittest.TestCase):
                 return "beta"
 
         class FakeGamma:
-            pass
+            def __init__(self, tool_service=None):
+                pass
 
         fake_alpha_module = types.ModuleType("harness.caste.alpha")
         fake_alpha_module.Alpha = FakeAlpha
@@ -147,13 +151,117 @@ class RouterOpenAIModelTests(unittest.TestCase):
         self.assertEqual(str(ctx.exception), "invalid response from alpha model backend")
         self.assertEqual(router._beta.calls, 0)
 
+    def test_dispatch_rejects_tool_request_when_tools_disabled_in_config(self):
+        class _FakeCaste:
+            supports_tools = True
+
+            def __init__(self, result_caste: Caste, call_counter: dict | None = None):
+                self._result_caste = result_caste
+                self._call_counter = call_counter
+
+            def infer(self, _msg):
+                if self._call_counter is not None:
+                    self._call_counter["count"] += 1
+                return Message(caste=self._result_caste, action=Action.INFER, payload={"result": "ok"})
+
+        gamma_calls = {"count": 0}
+        fake_alpha_module = types.ModuleType("harness.caste.alpha")
+        fake_beta_module = types.ModuleType("harness.caste.beta")
+        fake_gamma_module = types.ModuleType("harness.caste.gamma")
+        fake_alpha_module.Alpha = lambda tool_service=None: _FakeCaste(Caste.ALPHA)
+        fake_beta_module.Beta = lambda tool_service=None: _FakeCaste(Caste.BETA)
+        fake_gamma_module.Gamma = lambda tool_service=None: _FakeCaste(
+            Caste.GAMMA, call_counter=gamma_calls
+        )
+
+        with (
+            patch("harness.config.load_config", return_value={"tools": {"enabled": False}}),
+            patch.dict(
+                sys.modules,
+                {
+                    "harness.caste.alpha": fake_alpha_module,
+                    "harness.caste.beta": fake_beta_module,
+                    "harness.caste.gamma": fake_gamma_module,
+                },
+            ),
+        ):
+            router = Router()
+            resp = router.dispatch(
+                Message(
+                    caste=Caste.GAMMA,
+                    action=Action.INFER,
+                    payload={"prompt": "x", "tools": True},
+                )
+            )
+
+        self.assertIn("error", resp.payload)
+        self.assertIn("disabled", resp.payload["error"])
+        self.assertEqual(gamma_calls["count"], 0)
+
+    def test_dispatch_treats_tools_none_as_not_requested(self):
+        class _FakeCaste:
+            supports_tools = False
+
+            def __init__(self, result_caste: Caste, call_counter: dict | None = None):
+                self._result_caste = result_caste
+                self._call_counter = call_counter
+
+            def infer(self, _msg):
+                if self._call_counter is not None:
+                    self._call_counter["count"] += 1
+                return Message(caste=self._result_caste, action=Action.INFER, payload={"result": "ok"})
+
+        gamma_calls = {"count": 0}
+        fake_alpha_module = types.ModuleType("harness.caste.alpha")
+        fake_beta_module = types.ModuleType("harness.caste.beta")
+        fake_gamma_module = types.ModuleType("harness.caste.gamma")
+        fake_alpha_module.Alpha = lambda tool_service=None: _FakeCaste(Caste.ALPHA)
+        fake_beta_module.Beta = lambda tool_service=None: _FakeCaste(Caste.BETA)
+        fake_gamma_module.Gamma = lambda tool_service=None: _FakeCaste(
+            Caste.GAMMA, call_counter=gamma_calls
+        )
+
+        with (
+            patch("harness.config.load_config", return_value={"tools": {"enabled": True}}),
+            patch.dict(
+                sys.modules,
+                {
+                    "harness.caste.alpha": fake_alpha_module,
+                    "harness.caste.beta": fake_beta_module,
+                    "harness.caste.gamma": fake_gamma_module,
+                },
+            ),
+        ):
+            router = Router()
+            resp = router.dispatch(
+                Message(
+                    caste=Caste.GAMMA,
+                    action=Action.INFER,
+                    payload={"prompt": "x", "tools": None},
+                )
+            )
+
+        self.assertNotIn("error", resp.payload)
+        self.assertEqual(gamma_calls["count"], 1)
+
+    def test_dispatch_unknown_caste_preserves_requested_caste(self):
+        router = Router.__new__(Router)
+        router._routes = {}
+        resp = router.dispatch(
+            Message(caste=Caste.BETA, action=Action.INFER, payload={"prompt": "x"})
+        )
+
+        self.assertEqual(resp.caste, Caste.BETA)
+        self.assertIn("unknown caste", resp.payload.get("error", ""))
+
 
 class SchedulerSelfModTests(unittest.TestCase):
     def setUp(self):
         self.engine = SchedulerEngine()
 
     def test_self_mod_rejects_path_outside_allowed(self):
-        import tempfile, os
+        import tempfile
+        import os
         with tempfile.NamedTemporaryFile(suffix=".py", delete=False) as f:
             outside = f.name
         try:

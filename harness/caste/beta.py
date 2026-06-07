@@ -1,66 +1,44 @@
 from __future__ import annotations
 import gc
-from typing import Iterator
+import json
+import re
+from typing import Iterator, TYPE_CHECKING
 from harness.caste._base import CasteBase
-from harness.comms.message import Message, Caste, Action, ContextHint
+from harness.comms.message import Message, Caste, Action
 from harness.config import load_config
+
+if TYPE_CHECKING:
+    from llama_cpp import Llama
 
 
 class Beta(CasteBase):
     caste = Caste.BETA
+    supports_tools = True
 
-    def __init__(self, cfg: dict | None = None):
+    def __init__(self, cfg: dict | None = None, tool_service=None):
+        super().__init__(tool_service=tool_service)
         _cfg = cfg or load_config().get("beta", {})
-        self.primary_engine = _cfg.get("engine", "mlx")
-        self.primary_model = _cfg.get("model", "prism-ml/Ternary-Bonsai-8B")
-        self.fallback_engine = _cfg.get("fallback_engine", "llama.cpp")
-        self.fallback_model = _cfg.get("fallback_model", "")
-        self.ctx_size = _cfg.get("ctx_size", 8192)
-        self._model = None
-        self._tokenizer = None
+        self.model_path = _cfg.get("model", "~/.huxley/models/Bonsai-8B.gguf")
+        self.ctx_size = _cfg.get("ctx_size", 65536)
+        self._model: Llama | None = None
 
-    def _load_mlx(self, model_name: str) -> str | None:
-        import mlx_lm
-        self._model, self._tokenizer = mlx_lm.load(model_name)
-        return None
-
-    def _load_llamacpp(self, model_path: str) -> str | None:
+    def _load_llamacpp(self, model_path: str) -> None:
         from llama_cpp import Llama
+
         self._model = Llama(
             model_path=model_path,
             n_ctx=self.ctx_size,
             n_gpu_layers=-1,
             verbose=False,
         )
-        return None
 
     def _load(self):
         if self._model is not None:
             return
-        errs = []
-        if self.primary_engine == "mlx":
-            try:
-                return self._load_mlx(self.primary_model)
-            except Exception as e:
-                errs.append(f"mlx({self.primary_model}): {e}")
-        elif self.primary_engine == "llama.cpp":
-            try:
-                return self._load_llamacpp(self.primary_model)
-            except Exception as e:
-                errs.append(f"llamacpp({self.primary_model}): {e}")
-        if self.fallback_model:
-            try:
-                if self.fallback_engine == "mlx":
-                    return self._load_mlx(self.fallback_model)
-                else:
-                    return self._load_llamacpp(self.fallback_model)
-            except Exception as e:
-                errs.append(f"fallback({self.fallback_model}): {e}")
-        raise RuntimeError(" | ".join(errs))
+        self._load_llamacpp(self.model_path)
 
     def _reset_model(self):
         self._model = None
-        self._tokenizer = None
         gc.collect()
 
     def _recovery_ctx_size(self) -> int:
@@ -68,22 +46,24 @@ class Beta(CasteBase):
             return 24576
         return max(8192, self.ctx_size // 2)
 
-    def _run_generation(self, messages: list[dict], max_tok: int, temperature: float = 0.1) -> str:
-        if hasattr(self._tokenizer, "apply_chat_template"):
-            import mlx_lm
-            formatted = self._tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            return mlx_lm.generate(
-                self._model, self._tokenizer,
-                prompt=formatted, max_tokens=max_tok,
-                temp=temperature, verbose=False,
-            )
+    def _run_generation(
+        self, messages: list[dict], max_tok: int, temperature: float = 0.1
+    ) -> str:
         response = self._model.create_chat_completion(
-            messages=messages, max_tokens=max_tok,
-            temperature=temperature, stop=None,
+            messages=messages,
+            max_tokens=max_tok,
+            temperature=temperature,
+            stop=None,
         )
         return response.get("choices", [{}])[0].get("message", {}).get("content", "")
 
-    def _recover_and_retry(self, messages: list[dict], max_tok: int, error: Exception, temperature: float = 0.1) -> str:
+    def _recover_and_retry(
+        self,
+        messages: list[dict],
+        max_tok: int,
+        error: Exception,
+        temperature: float = 0.1,
+    ) -> str:
         if "llama_decode returned -3" not in str(error):
             raise error
         retry_ctx = self._recovery_ctx_size()
@@ -96,7 +76,9 @@ class Beta(CasteBase):
         self._load()
         return self._run_generation(messages, max_tok, temperature=temperature)
 
-    def complete_chat(self, messages: list[dict], max_tokens: int, temperature: float = 0.1) -> str:
+    def complete_chat(
+        self, messages: list[dict], max_tokens: int, temperature: float = 0.1
+    ) -> str:
         try:
             self._load()
         except Exception as e:
@@ -104,45 +86,30 @@ class Beta(CasteBase):
         try:
             return self._run_generation(messages, max_tokens, temperature=temperature)
         except Exception as e:
-            return self._recover_and_retry(messages, max_tokens, e, temperature=temperature)
+            return self._recover_and_retry(
+                messages, max_tokens, e, temperature=temperature
+            )
 
-    def stream_chat(self, messages: list[dict], max_tokens: int, temperature: float = 0.1) -> Iterator[dict]:
+    def stream_chat(
+        self, messages: list[dict], max_tokens: int, temperature: float = 0.1
+    ) -> Iterator[dict]:
         try:
             self._load()
         except Exception as e:
             raise RuntimeError(f"model load failed: {e}") from e
 
         try:
-            yield from self._stream_generation(messages, max_tokens, temperature=temperature)
+            yield from self._stream_generation(
+                messages, max_tokens, temperature=temperature
+            )
         except Exception as e:
-            yield from self._recover_and_stream(messages, max_tokens, e, temperature=temperature)
+            yield from self._recover_and_stream(
+                messages, max_tokens, e, temperature=temperature
+            )
 
-    def _stream_generation(self, messages: list[dict], max_tok: int, temperature: float = 0.1) -> Iterator[dict]:
-        if hasattr(self._tokenizer, "apply_chat_template"):
-            import mlx_lm
-            formatted = self._tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-            finish_reason = "stop"
-            generated_any = False
-            for chunk in mlx_lm.stream_generate(
-                self._model,
-                self._tokenizer,
-                prompt=formatted,
-                max_tokens=max_tok,
-                temp=temperature,
-            ):
-                text = getattr(chunk, "text", "")
-                if text:
-                    generated_any = True
-                    yield {"delta": text, "finish_reason": None}
-                finish = getattr(chunk, "finish_reason", None)
-                if finish:
-                    finish_reason = finish
-            if not generated_any:
-                yield {"delta": "", "finish_reason": finish_reason}
-            else:
-                yield {"delta": "", "finish_reason": finish_reason}
-            return
-
+    def _stream_generation(
+        self, messages: list[dict], max_tok: int, temperature: float = 0.1
+    ) -> Iterator[dict]:
         stream = self._model.create_chat_completion(
             messages=messages,
             max_tokens=max_tok,
@@ -166,7 +133,13 @@ class Beta(CasteBase):
         else:
             yield {"delta": "", "finish_reason": finish_reason}
 
-    def _recover_and_stream(self, messages: list[dict], max_tok: int, error: Exception, temperature: float = 0.1) -> Iterator[dict]:
+    def _recover_and_stream(
+        self,
+        messages: list[dict],
+        max_tok: int,
+        error: Exception,
+        temperature: float = 0.1,
+    ) -> Iterator[dict]:
         if "llama_decode returned -3" not in str(error):
             raise error
         retry_ctx = self._recovery_ctx_size()
@@ -180,16 +153,24 @@ class Beta(CasteBase):
         yield from self._stream_generation(messages, max_tok, temperature=temperature)
 
     def infer(self, msg: Message) -> Message:
+        if self._msg_requests_tools(msg):
+            return self._infer_with_tools(msg)
+
         prompt = _fmt_beta_prompt(msg)
         system = _beta_system_prompt(msg.context_hint)
         history = []
         if msg.session:
             from harness.memory.persistence import SessionJournal
+
             journal = SessionJournal(msg.session, "beta")
             if journal.needs_compaction():
                 self._compact_journal(journal, msg)
             history = journal.read(max_tokens=msg.token_budget.get("input", 4096))
-        messages = [{"role": "system", "content": system}] + history + [{"role": "user", "content": prompt}]
+        messages = (
+            [{"role": "system", "content": system}]
+            + history
+            + [{"role": "user", "content": prompt}]
+        )
         max_tok = msg.token_budget.get("output", 128)
         try:
             response = self.complete_chat(messages, max_tok, temperature=0.1)
@@ -218,6 +199,76 @@ class Beta(CasteBase):
                 session=msg.session,
             )
 
+    def _infer_with_tools(self, msg: Message) -> Message:
+        from harness.tool.engine import ToolService
+
+        prompt = _fmt_beta_prompt(msg)
+        system = _beta_system_prompt(msg.context_hint)
+        try:
+            self._load()
+            ts = self._tool_service or ToolService()
+            ts.registry.scan_skills()
+            tools = ts.registry.definitions()
+            history = []
+            if msg.session:
+                from harness.memory.persistence import SessionJournal
+
+                journal = SessionJournal(msg.session, "beta")
+                history = journal.read(max_tokens=msg.token_budget.get("input", 4096))
+            messages = (
+                [{"role": "system", "content": system}]
+                + history
+                + [{"role": "user", "content": prompt}]
+            )
+
+            def _model_fn(messages, **kw):
+                try:
+                    resp = self._model.create_chat_completion(
+                        messages=messages,
+                        max_tokens=min(msg.token_budget.get("output", 512), 4096),
+                        temperature=0.1,
+                        **kw,
+                    )
+                except Exception as e:
+                    if "llama_decode returned -3" not in str(e):
+                        raise
+                    retry_ctx = self._recovery_ctx_size()
+                    if retry_ctx == self.ctx_size:
+                        raise
+                    old_ctx = self.ctx_size
+                    self._reset_model()
+                    self.ctx_size = retry_ctx
+                    print(
+                        f"γ|beta|recover|ctx {old_ctx}->{retry_ctx}|decode -3",
+                        flush=True,
+                    )
+                    self._load()
+                    resp = self._model.create_chat_completion(
+                        messages=messages,
+                        max_tokens=min(msg.token_budget.get("output", 512), 4096),
+                        temperature=0.1,
+                        **kw,
+                    )
+                _inject_tool_calls(resp)
+                return resp
+
+            resp = ts.run_loop(model_fn=_model_fn, messages=messages, tools=tools)
+            msg_content = resp["choices"][0]["message"]
+            content = msg_content.get("content", "")
+            return Message(
+                caste=Caste.BETA,
+                action=Action.INFER,
+                payload={"result": content or "(tool result)", "raw": resp},
+                session=msg.session,
+            )
+        except Exception as e:
+            return Message(
+                caste=Caste.BETA,
+                action=Action.INFER,
+                payload={"error": str(e)},
+                session=msg.session,
+            )
+
     def _compact_journal(self, journal, msg):
         text = journal.build_compactable_text()
         if text is None:
@@ -226,15 +277,17 @@ class Beta(CasteBase):
         try:
             self._load()
             system = "You are a precise summarizer. Output only the summary paragraph, no preamble."
-            cmessages = [{"role": "system", "content": system}, {"role": "user", "content": cprompt}]
+            cmessages = [
+                {"role": "system", "content": system},
+                {"role": "user", "content": cprompt},
+            ]
             max_tok = msg.token_budget.get("output", 256)
-            if hasattr(self._tokenizer, "apply_chat_template"):
-                import mlx_lm
-                formatted = self._tokenizer.apply_chat_template(cmessages, tokenize=False, add_generation_prompt=True)
-                response = mlx_lm.generate(self._model, self._tokenizer, prompt=formatted, max_tokens=max_tok, temp=0.1, verbose=False)
-            else:
-                resp = self._model.create_chat_completion(messages=cmessages, max_tokens=max_tok, temperature=0.1, stop=None)
-                response = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+            resp = self._model.create_chat_completion(
+                messages=cmessages, max_tokens=max_tok, temperature=0.1, stop=None
+            )
+            response = (
+                resp.get("choices", [{}])[0].get("message", {}).get("content", "")
+            )
             summary = response.strip()
             if summary:
                 journal.compact(summary)
@@ -261,3 +314,42 @@ def _fmt_beta_prompt(msg: Message) -> str:
     if isinstance(p, dict):
         return p.get("prompt", str(p))
     return str(p)
+
+
+def _inject_tool_calls(resp: dict) -> None:
+    msg = resp.get("choices", [{}])[0].get("message", {})
+    if msg.get("tool_calls") or not msg.get("content"):
+        return
+    content = msg["content"]
+    if "<tool_call>" not in content:
+        return
+    tcs, cleaned = _extract_tool_calls(content)
+    if not tcs:
+        return
+    msg["tool_calls"] = tcs
+    msg["content"] = cleaned or None
+
+
+def _extract_tool_calls(text: str) -> tuple[list[dict], str]:
+    pattern = r"<tool_call>\s*(.*?)\s*</tool_call>"
+    matches = list(re.finditer(pattern, text, re.DOTALL))
+    if not matches:
+        return [], text
+    tool_calls = []
+    for m in matches:
+        try:
+            parsed = json.loads(m.group(1))
+            args = parsed.get("arguments", {})
+            tool_calls.append(
+                {
+                    "type": "function",
+                    "function": {
+                        "name": parsed.get("name", ""),
+                        "arguments": args if isinstance(args, str) else json.dumps(args),
+                    },
+                }
+            )
+        except (json.JSONDecodeError, TypeError):
+            continue
+    cleaned = re.sub(pattern, "", text, flags=re.DOTALL).strip()
+    return tool_calls, cleaned

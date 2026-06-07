@@ -112,7 +112,6 @@ class ConfigMergeTests(unittest.TestCase):
         self.assertEqual(cfg["alpha"]["model"], DEFAULT_CONFIG["alpha"]["model"])
         self.assertEqual(cfg["alpha"]["draft_model"], DEFAULT_CONFIG["alpha"]["draft_model"])
         self.assertEqual(cfg["beta"]["model"], DEFAULT_CONFIG["beta"]["model"])
-        self.assertEqual(cfg["beta"]["fallback_model"], DEFAULT_CONFIG["beta"]["fallback_model"])
         self.assertEqual(cfg["gamma"]["model"], "apple-foundationmodel")
 
     def test_repair_legacy_paths_rewrites_monster_home_paths(self):

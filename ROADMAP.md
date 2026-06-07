@@ -46,8 +46,6 @@ Exploratory ideas and future directions beyond the initial implementation.
 
 **Why**: Manual model/quant research is tedious. Let the harness do it. It has the context and the incentive.
 
----
-
 ## 3. Huxley Collective (Trusted Skill Registry)
 
 **Goal**: Formally tested skills shared across huxley instances — without becoming a malware distribution pipeline.
@@ -800,6 +798,88 @@ That would let Huxley answer questions like:
 **Why**: Right now Huxley can be powerful without feeling legible. Better caste signalling, explicit capability catalogues, and a true project memory layer would make the system easier to trust, easier to browse, and easier to direct.
 
 ---
+
+## 6. Sleep Cycle (Memory Consolidation + Dreaming)
+
+**Goal**: Inspired by Behrouz et al. "Language Models Need Sleep" (arXiv 2606.03979). During idle periods, run a two-phase cycle that consolidates short-term caste experience into long-term memory and generates synthetic self-improvement data.
+
+### Background
+
+The paper draws an analogy between LLMs and anterograde amnesia — both have intact long-past memories but cannot form new persistent memories from immediate experience. The solution is a two-stage process mirroring human sleep:
+
+| Sleep Stage | Function | Huxley Analog |
+|---|---|---|
+| **NREM (Slow-Wave)** | Memory consolidation, synaptic homeostasis | **Consolidation**: distill Gamma/Beta journal experience upward through the caste hierarchy |
+| **REM (Dreaming)** | Novel connections, future scenario simulation | **Dreaming**: generate synthetic tasks from own outputs, extract improvements |
+
+Huxley's existing caste hierarchy already resembles the paper's **Continuum Memory System** — Gamma is fast/volatile (high-frequency), Beta is mid-term (medium-frequency), Alpha is stable (low-frequency). What's missing is an explicit consolidation protocol and a dreaming phase.
+
+### Phase 1 — Consolidation (NREM analog)
+
+Triggered by scheduler `idle` + backlog of unconsolidated journal entries.
+
+**Pipeline:**
+1. Gamma completes a batch of UNITs → journal accumulates raw experience
+2. On idle, Gamma distills its recent journal into a structured **memory snapshot**: patterns observed, tasks completed, errors encountered, effective strategies
+3. Beta receives Gamma's memory snapshot, cross-references with its own journal, produces a higher-level synthesis
+4. Alpha receives Beta's synthesis, integrates into long-term context — stored in Chroma or MemQ Graph
+5. After consolidation, Gamma's high-frequency journal is pruned (synaptic pruning analog) — frees capacity for future learning
+
+**Implementation sketch:**
+```
+sleep consolidate [--caste gamma|beta|alpha]
+  → distill journal entries into structured summary
+  → pass summary to next caste up
+  → prune consolidated entries
+  → post CONSOLIDATED event to board
+```
+
+### Phase 2 — Dreaming (REM analog)
+
+Triggered after consolidation completes. Only Alpha can afford to dream (it's the ruling class).
+
+**Pipeline:**
+1. Alpha reviews consolidated memory from Phase 1
+2. Generates synthetic task variants — "what if the user asked X instead of Y?"
+3. Evaluates its own responses on those synthetic tasks (self-critique)
+4. Scores each dream by quality → keeps high-scoring ones
+5. Extracts actionable improvements: better prompts, new skill patterns, config tweaks
+6. Outputs go to the board as `IMPROVEMENT` EPICs for human review
+
+**Implementation sketch:**
+```
+sleep dream [--budget <tokens>]
+  → review consolidated memory
+  → generate N synthetic task variants
+  → self-evaluate responses
+  → keep top-K by quality score
+  → extract improvements → post EPICs to board
+```
+
+### Constraints
+- Only triggers during scheduler `idle` periods — never preempts active work
+- Configurable token budget per cycle: `harness.sleep.budget: 10000`
+- Consolidation runs at lower priority than any active EPIC/TASK/UNIT
+- Dreaming only runs after consolidation is fully done
+- Explicit opt-in: `harness.sleep.enabled: true`
+- Configurable consolidation depth: which castes participate (`gamma`, `beta`, `alpha`, or `all`)
+
+### Why not just use the paper's approach directly?
+
+The paper operates at the **weight level** — parameter expansion, LoRA fine-tuning, gradient-based scoring. Huxley is an inference harness; it has no training stack. Instead of modifying model weights, this works at the **agent level**: consolidating experience through the caste hierarchy (which maps to the paper's continuum memory concept) and generating synthetic self-improvement data through introspection (mapping to the dreaming phase).
+
+The paper's ablation study shows all components contribute positively, but the dreaming phase has the largest impact. The most valuable thing Huxley can take from this paper is the **two-phase cycle itself** — the conceptual structure — applied at the agent/experience layer rather than the weight/gradient layer.
+
+### Dependencies
+- Scheduler `idle` trigger (implemented)
+- Journal system with structured summarization (exists, needs enhancement for Phase 1)
+- Board EPIC posting (implemented)
+- Self-critique/self-evaluation capability (exists in caste inference, needs formalization)
+- Token budgeting for background work (new)
+- `harness.sleep` config namespace (new)
+
+---
+
 
 ## ✅ Completed
 

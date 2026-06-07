@@ -62,7 +62,7 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 | Caste | Model | Engine | Context | Role |
 |-------|-------|--------|---------|------|
 | γ | Apple Foundation Model | [Apfel](https://github.com/Arthur-Ficial/apfel) | 4K | File I/O, classification, extraction, grep generation. Stateless, disposable. |
-| β | [Ternary Bonsai 8B](https://prismml.com/news/ternary-bonsai) | MLX (primary) / llama.cpp (fallback) | 8K | Summarisation, routing, task decomposition. Short-term context only. |
+| β | [Ternary Bonsai 8B](https://prismml.com/news/ternary-bonsai) | llama.cpp | 8K | Summarisation, routing, task decomposition. Short-term context only. |
 | α | [Gemma 4 e4B](https://ai.google.dev/gemma) 4bit | llama.cpp + MTP + TurboQuant | 32K | Orchestration, HCI, long-term memory, skill dispatch, cloud routing. |
 
 ### Job Board
@@ -94,6 +94,8 @@ huxley board list --state in_progress
 # Post work
 huxley board post epic "refactor memory system" --prompt "..."
 huxley board post unit "implement GET endpoint"
+huxley board post epic "build auth system" --tools      # tool-enabled, propagates to children
+huxley board post unit "refactor parser" --tools        # single unit with tool access
 
 # Claim work (pulls next backlog→ready→in_progress)
 huxley board claim epic --caste β
@@ -134,15 +136,13 @@ GGUF models are stored in `~/.huxley/models/` — a central, harness-managed dir
 |-------|------|-------|
 | Gemma 4 e4B (main) | `~/.huxley/models/gemma-4-e4b-Q4_K_M.gguf` | α |
 | Gemma 4 e4B draft (MTP) | `~/.huxley/models/gemma-4-e4b-draft.gguf` | α |
-| Ternary Bonsai 8B (llama.cpp fallback) | `~/.huxley/models/ternary-bonsai-8b.gguf` | β |
+| Ternary Bonsai 8B | `~/.huxley/models/ternary-bonsai-8b.gguf` | β |
 
 ```bash
 # List models in the models directory
 huxley models
 # γ|model|gemma-4-e4b-Q4_K_M.gguf|5.2G
 ```
-
-MLX models (primary Beta engine) are cached by MLX in its own Hugging Face cache — no extra management needed.
 
 Model paths in `~/.huxley/config.yaml` use `~` expansion and are resolved at load time.
 
@@ -297,6 +297,60 @@ Every tick, the daemon claims pending board tasks and routes them to the correct
 - **EPICs** → Alpha (full Gemma 4 orchestration)
 
 The Router is shared across ticks — models stay resident, no reload overhead between inferences.
+
+## Tool Execution
+
+Units posted with the `--tools` flag execute inside a multi-turn tool-calling loop — the model can read, write, edit, and search files during inference to produce better results. The `"tools"` tag propagates through decomposition: EPIC → TASK → UNIT.
+
+```bash
+# Post a unit with tool access
+huxley board post unit "refactor parser" --tools
+
+# Post an epic that propagates tools to all children
+huxley board post epic "build auth system" --tools
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `read_file` | Read file contents with optional offset/limit |
+| `write_file` | Write content to a file (creates parent dirs) |
+| `edit_file` | Find and replace text in an existing file |
+| `delete_file` | Delete a file |
+| `glob_files` | Match file paths by glob pattern |
+| `create_directory` | Create a directory (and parents) |
+| `list_directory` | List entries in a directory |
+| `grep` | Search file contents by regex |
+| `bash` | Run shell commands (disabled by default) |
+
+Filesystem and search tools restrict access to a set of allowed roots: the project root, `~/.huxley/`, and any paths listed under `tools.path_whitelist`. The `bash` tool only restricts the **working directory** to these allowed roots — shell commands can still access arbitrary absolute paths inside the process. To minimise that exposure, keep `shell` disabled unless you explicitly need it.
+
+Skill tool loading (`tools.builtins.skills`) is disabled by default; enable it only for explicitly trusted skill directories.
+
+```yaml
+tools:
+  enabled: true
+  max_turns: 10
+  builtins:
+    shell: false    # set to true to enable bash (working-dir restricted only)
+    skills: false   # set to true to auto-load skill tools from ~/.agents and ~/.huxley
+  path_whitelist:
+    - /Users/me/my-project
+    - /Users/me/.huxley
+```
+
+### Tool Flow
+
+```
+prompt + tools: True
+  → ToolService.run_loop()
+    → model responds (text or tool_call)
+    → if tool_call: execute handler → append result → loop
+    → if max_turns exhausted or text response: return
+```
+
+Tool support is currently available for Alpha (Gemma 4 / llama.cpp with `--tool-call`), Beta (llama.cpp), and Gamma (Apfel v1.3.4+ OpenAI-compatible tool mode).
 
 ## Apfel Auto-Start
 
@@ -470,7 +524,7 @@ huxley compact --caste b
 - **Apple Silicon** (M1+)
 - **Python 3.11+**
 - **Apfel** — `brew install apfel` (for Gamma caste)
-- **MLX** (`pip install mlx-lm`) for Beta caste
+- **llama-cpp-python** for Beta caste
 - **Optional**: llama.cpp with Gemma 4 GGUF + TurboQuant for Alpha caste
 
 ## Installation
@@ -535,7 +589,7 @@ huxley api
 # Route a prompt through Gamma caste (requires apfel --serve)
 huxley infer γ "extract all email addresses from this text"
 
-# Route a prompt through Beta caste (requires mlx-lm)
+# Route a prompt through Beta caste (requires llama-cpp-python)
 huxley infer β "summarise the key points"
 
 # Route a prompt through Alpha caste (requires llama.cpp + Gemma 4)
@@ -560,6 +614,55 @@ huxley patch --list
 huxley patch --rollback <patch_id>
 ```
 
+## Adversarial Dev Mode
+
+`huxley adev` runs a multi-round adversarial development loop — a **Programmer** implements a task, a **Roaster** reviews the code, and an **Adjudicator** breaks ties when the review budget is exhausted.
+
+```
+Round 1: Programmer implements → Roaster reviews (DENIED → issues)
+Round 2: Programmer revises   → Roaster reviews (APPROVED → done)
+         ─ or ─
+Round N: Adjudicator breaks tie after max rounds
+```
+
+```bash
+# Basic adev session
+huxley adev "add user authentication to the API"
+
+# Control review rounds
+huxley adev "fix the memory leak" --rounds 10
+
+# Point at a specific directory
+huxley adev "refactor the scheduler" --workdir /path/to/project
+
+# Assign higher-tier castes for more nuanced reviews
+huxley adev "design the data model" \
+  --programmer-caste gamma \
+  --roaster-caste alpha \
+  --adjudicator-caste alpha
+```
+
+### Roles
+
+| Role | Default Caste | Tools | What it does |
+|------|---------------|-------|-------------|
+| Programmer | Gamma (γ) | ✅ | Reads codebase, implements the task, writes files |
+| Roaster | Gamma (γ) | ✅ | Reviews code, inspects files, denies with issues |
+| Adjudicator | Alpha (α) | ❌ | Final decision after round budget is exhausted |
+
+Any caste can be assigned to any role via `--*-caste` flags. Using Alpha as the roaster produces deeper, more critical reviews at higher token cost.
+
+### Loop
+
+```
+  Programmer ──write──→ Roaster ──approve──→ done
+                  ↑                  │
+                  │                  ↓
+                  └──── revise ── deny ──→ max rounds → Adjudicator
+```
+
+The engine accepts a pluggable `delegate` callable for swarm-aware execution — adev rounds can run across LAN peers instead of locally.
+
 ## Commands
 
 ### General
@@ -582,13 +685,14 @@ huxley patch --rollback <patch_id>
 | `huxley daemon start\|stop\|status` | Manage huxley background daemon |
 | `huxley schedule list\|add\|remove\|history` | Manage scheduled tasks |
 | `huxley swarm peers\|status\|test\|announce` | LAN peer discovery, diagnostics, and manual announce |
+| `huxley adev <task> [--rounds] [--workdir] [--*-caste]` | Run adversarial dev loop |
 
 ### Board (Kanban Job Queue)
 
 | Command | Description |
 |---------|-------------|
 | `huxley board list [--level] [--state]` | List tasks, optionally filtered |
-| `huxley board post <level> <title>` | Post a new task (epic/task/unit) |
+| `huxley board post <level> <title> [--tools]` | Post a new task (epic/task/unit) with optional tool access |
 | `huxley board show <task-id>` | Show full task details |
 | `huxley board claim <level> --caste <caste>` | Pull next available task into in_progress |
 | `huxley board complete <task-id> [--result]` | Mark task as done with result |
@@ -638,11 +742,8 @@ alpha:
   draft_max: 8
 
 beta:
-  engine: mlx
-  model: prism-ml/Ternary-Bonsai-8B
-  ctx_size: 8192
-  fallback_engine: llama.cpp
-  fallback_model: ternary-bonsai-8b.gguf
+  model: ~/.huxley/models/Bonsai-8B.gguf
+  ctx_size: 65536
 
 gamma:
   endpoint: http://localhost:11434/v1
@@ -720,7 +821,7 @@ Huxley/
 ├── harness/
 │   ├── __init__.py          # Package version
 │   ├── __main__.py          # python -m harness
-│   ├── cli.py               # Entry point with 15+ commands
+│   ├── cli.py               # Entry point with 16+ commands
 │   ├── config.py            # YAML config, ~/.huxley/ bootstrap
 │   ├── board/
 │   │   ├── __init__.py
@@ -733,7 +834,7 @@ Huxley/
 │   │   ├── _base.py         # CasteBase ABC
 │   │   ├── apfeld.py        # Apfel lifecycle (auto-start, PID tracking)
 │   │   ├── gamma.py         # Apfel integration
-│   │   ├── beta.py          # Bonsai Ternary / MLX / llama.cpp integration
+│   │   ├── beta.py          # Bonsai Ternary / llama.cpp integration
 │   │   └── alpha.py         # Gemma 4 / llama.cpp integration
 │   ├── comms/
 │   │   ├── __init__.py
@@ -758,10 +859,23 @@ Huxley/
 │   │   ├── __init__.py
 │   │   ├── endpoint.py      # OpenAI-compatible cloud client
 │   │   └── router.py        # Cloud routing
-│       ├── swarm/
+│   ├── swarm/
 │   │   ├── __init__.py
 │   │   ├── peer.py          # Peer table with TTL-based staleness
 │   │   └── discovery.py     # UDP multicast discovery service
+│   ├── tool/
+│   │   ├── __init__.py
+│   │   ├── decorator.py     # @tool() decorator, JSON Schema generation
+│   │   ├── registry.py      # Built-in + skill tool loading
+│   │   ├── engine.py        # ToolService run_loop (multi-turn tool calling)
+│   │   └── builtins/
+│   │       ├── __init__.py
+│   │       ├── filesystem.py # read/write/edit/delete/glob/listdir/create
+│   │       ├── search.py     # grep
+│   │       └── shell.py      # bash (disabled by default)
+│   ├── adev/
+│   │   ├── __init__.py
+│   │   └── engine.py        # AdversarialDevEngine (Programmer/Roaster/Adjudicator loop)
 │   ├── selfmod/
 │   │   ├── __init__.py
 │   │   ├── introspect.py    # AST-based API surface discovery
