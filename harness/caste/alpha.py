@@ -112,9 +112,9 @@ class Alpha(CasteBase):
             "--cache-type-v",
             acfg["cache_type_v"],
         ]
-        if acfg.get("mtp") and acfg.get("draft_model"):
-            cmd.extend(["-md", acfg["draft_model"]])
-            cmd.extend(["--spec-draft-n-max", str(acfg.get("draft_max", 8))])
+        reasoning_val = acfg.get("reasoning", "auto")
+        if reasoning_val is False or str(reasoning_val).lower() in ("off", "false", "no", "0"):
+            cmd.extend(["--reasoning", "off"])
 
         try:
             self._proc = subprocess.Popen(
@@ -159,7 +159,7 @@ class Alpha(CasteBase):
 
             self._client = _OCC(
                 endpoint=f"{self._endpoint()}/v1",
-                model="gemma-4-e4b",
+                model="gemma-4-12b",
                 timeout=120.0,
             )
         return self._client
@@ -275,8 +275,9 @@ class Alpha(CasteBase):
 
             if self._msg_requests_tools(msg):
                 ts = self._tool_service or ToolService()
-                ts.registry.scan_skills()
-                tools = ts.registry.definitions()
+                skill_name = msg.payload.get("skill_name") if isinstance(msg.payload, dict) else None
+                ts.registry.scan_skills(skill_name=skill_name)
+                tools = ts.registry.definitions(skill_name=skill_name)
                 resp = ts.run_loop(
                     model_fn=lambda messages, **kw: self.complete_chat(
                         messages=messages,

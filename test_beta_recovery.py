@@ -1,36 +1,22 @@
 import unittest
+from unittest.mock import patch, MagicMock
 
 from harness.caste.beta import Beta, _extract_tool_calls
 from harness.comms.message import Message, Caste, Action
 
 
-class _FailingModel:
-    def create_chat_completion(self, **kwargs):
-        raise RuntimeError("llama_decode returned -3")
-
-
-class _WorkingModel:
-    def create_chat_completion(self, **kwargs):
-        return {"choices": [{"message": {"content": "recovered"}}]}
-
-
 class BetaRecoveryTests(unittest.TestCase):
-    def test_decode_error_reloads_with_smaller_context_and_retries(self):
+    @patch("harness.caste.beta.Beta.start_server", return_value=True)
+    def test_server_error_returns_error_message(self, mock_start):
         beta = Beta({
             "model": "/tmp/fake-model.gguf",
-            "ctx_size": 49152,
+            "ctx_size": 24576,
         })
-        states = iter([
-            _FailingModel(),
-            _WorkingModel(),
-        ])
 
-        def fake_load():
-            if beta._model is not None:
-                return
-            beta._model = next(states)
-
-        beta._load = fake_load  # type: ignore[method-assign]
+        mock_client = MagicMock()
+        mock_client.chat.side_effect = RuntimeError("500 Internal Server Error")
+        mock_client.health.return_value = True
+        beta._client = mock_client
 
         msg = Message(
             caste=Caste.BETA,
@@ -41,8 +27,16 @@ class BetaRecoveryTests(unittest.TestCase):
 
         resp = beta.infer(msg)
 
-        self.assertEqual(resp.payload["result"], "recovered")
-        self.assertEqual(beta.ctx_size, 24576)
+        self.assertIn("error", resp.payload)
+        self.assertIn("500", str(resp.payload["error"]))
+
+    @patch("harness.caste.beta.Beta.start_server", return_value=True)
+    def test_health_without_running_server(self, mock_start):
+        beta = Beta({
+            "model": "/tmp/fake-model.gguf",
+            "ctx_size": 24576,
+        })
+        self.assertFalse(beta.health())
 
     def test_extract_tool_calls_leaves_id_unset_for_tool_service(self):
         text = '<tool_call>{"name":"read_file","arguments":{"path":"x.txt"}}</tool_call>'
@@ -50,6 +44,12 @@ class BetaRecoveryTests(unittest.TestCase):
         self.assertEqual(cleaned, "")
         self.assertEqual(len(tool_calls), 1)
         self.assertNotIn("id", tool_calls[0])
+
+    def test_should_restart_for_500(self):
+        beta = Beta()
+        self.assertTrue(beta._should_restart_for_error(RuntimeError("500 Internal Server Error")))
+        self.assertTrue(beta._should_restart_for_error(RuntimeError("timed out")))
+        self.assertFalse(beta._should_restart_for_error(RuntimeError("model load failed")))
 
 
 if __name__ == "__main__":

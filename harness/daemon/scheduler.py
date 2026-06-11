@@ -3,6 +3,7 @@ import sys
 import time
 import uuid
 import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable, Optional
@@ -165,9 +166,10 @@ _peer_table = PeerTable()
 
 
 class SchedulerEngine:
-    def __init__(self, tick_interval: int = 5, daemon_port: Optional[int] = None):
+    def __init__(self, tick_interval: int = 5, daemon_port: Optional[int] = None, max_concurrent: int = 4):
         self.tick_interval = tick_interval
         self._daemon_port = daemon_port
+        self._max_concurrent = max_concurrent
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._router: Any = None
@@ -181,7 +183,7 @@ class SchedulerEngine:
         self._peer_activity: dict[str, dict[str, Any]] = {}
         self._peer_activity_lock = threading.Lock()
         self._peer_activity_ttl = 120
-        self._inference_lock = threading.Lock()
+        self._router_lock = threading.Lock()
         self._pending_reload = False
         self._reload_handler_installed = False
 
@@ -271,22 +273,33 @@ class SchedulerEngine:
 
     def _worker_tick(self):
         board = JobBoard()
+        claimed = []
         for level, caste_tag in [
             (Level.UNIT, "γ"),
             (Level.TASK, "β"),
             (Level.EPIC, "α"),
         ]:
-            t = board.claim(level, caste_tag=caste_tag)
-            if t is None:
-                continue
-            print(f"γ|worker|claim|{t.id[:8]}|{level.value}|{t.title[:40]}", flush=True)
-            try:
-                self._route_work(t, board)
-            except Exception as e:
-                print(f"γ|worker|err|{t.id[:8]}|{e}", flush=True)
-                board.complete(t.id, f"error: {e}")
+            while len(claimed) < self._max_concurrent:
+                t = board.claim(level, caste_tag=caste_tag)
+                if t is None:
+                    break
+                claimed.append(t)
+        if not claimed:
+            self._escalation_check(board)
             return
-        self._escalation_check(board)
+        with ThreadPoolExecutor(max_workers=self._max_concurrent) as pool:
+            fut_map: dict[Any, Task] = {}
+            for t in claimed:
+                print(f"γ|worker|claim|{t.id[:8]}|{t.level.value}|{t.title[:40]}", flush=True)
+                fut = pool.submit(self._route_work, t, JobBoard())
+                fut_map[fut] = t
+            for fut in as_completed(fut_map):
+                try:
+                    fut.result()
+                except Exception as e:
+                    t = fut_map[fut]
+                    print(f"γ|worker|err|{t.id[:8]}|{e}", flush=True)
+                    JobBoard().complete(t.id, f"error: {e}")
 
     def _route_work(self, task: Task, board: JobBoard):
         level = task.level
@@ -309,18 +322,15 @@ class SchedulerEngine:
         caste_map = {"epic": Caste.ALPHA, "task": Caste.BETA, "unit": Caste.GAMMA}
         caste = caste_map[level]
         payload: dict = {"prompt": prompt}
-        with self._inference_lock:
-            if self._router is None:
-                self._router = self._get_router()
-            if use_tools:
-                payload["tools"] = True
-            msg = Message(
-                caste=caste,
-                action=Action.INFER,
-                payload=payload,
-                token_budget={"input": 4096, "output": max_output},
-            )
-            resp = self._router.dispatch(msg)
+        if use_tools:
+            payload["tools"] = True
+        msg = Message(
+            caste=caste,
+            action=Action.INFER,
+            payload=payload,
+            token_budget={"input": 4096, "output": max_output},
+        )
+        resp = self._get_router().dispatch(msg)
         if "error" in resp.payload:
             raise RuntimeError(resp.payload["error"])
         return resp.payload.get("result", "")
@@ -332,14 +342,15 @@ class SchedulerEngine:
 
     def _get_router(self):
         if self._router is None:
-            from harness.comms.router import Router
+            with self._router_lock:
+                if self._router is None:
+                    from harness.comms.router import Router
 
-            self._router = Router()
+                    self._router = Router()
         return self._router
 
     def openai_models(self) -> list[dict]:
-        with self._inference_lock:
-            return self._get_router().openai_models()
+        return self._get_router().openai_models()
 
     def openai_chat_completion(
         self,
@@ -349,8 +360,7 @@ class SchedulerEngine:
         temperature: float = 0.0,
         request_options: dict | None = None,
     ) -> dict:
-        with self._inference_lock:
-            return self._get_router().openai_chat_completion(
+        return self._get_router().openai_chat_completion(
                 model=model,
                 messages=messages,
                 max_tokens=max_tokens,
@@ -367,8 +377,7 @@ class SchedulerEngine:
         request_options: dict | None = None,
     ):
         def stream():
-            with self._inference_lock:
-                yield from self._get_router().openai_chat_completion_stream(
+            yield from self._get_router().openai_chat_completion_stream(
                     model=model,
                     messages=messages,
                     max_tokens=max_tokens,

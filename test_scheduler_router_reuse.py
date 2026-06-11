@@ -60,13 +60,36 @@ class RouterOpenAIModelTests(unittest.TestCase):
         self.assertNotIn("", model_ids)
         load_config_mock.assert_called_once()
 
-    def test_beta_tool_calling_raises_request_error_for_json_and_streaming(self):
+    def test_beta_tool_calling_works_via_openai_api(self):
+        class FakeBeta:
+            supports_tools = True
+            def __init__(self, tool_service=None):
+                self.calls = []
+            def complete_chat(self, messages, max_tokens, temperature=0.1, request_options=None):
+                self.calls.append(("complete_chat", request_options))
+                return {
+                    "id": "cmpl-test",
+                    "object": "chat.completion",
+                    "created": 0,
+                    "model": "beta",
+                    "choices": [{
+                        "index": 0,
+                        "message": {"role": "assistant", "content": "tool result"},
+                        "finish_reason": "stop",
+                    }],
+                }
+            def stream_chat(self, messages, max_tokens, temperature=0.1, request_options=None):
+                self.calls.append(("stream_chat", request_options))
+                yield {"delta": "", "tool_calls": None, "finish_reason": "stop"}
+            def health(self):
+                return True
+
         fake_alpha_module = types.ModuleType("harness.caste.alpha")
-        fake_alpha_module.Alpha = lambda tool_service=None: object()
+        fake_alpha_module.Alpha = lambda tool_service=None: FakeBeta()
         fake_beta_module = types.ModuleType("harness.caste.beta")
-        fake_beta_module.Beta = lambda tool_service=None: object()
+        fake_beta_module.Beta = lambda tool_service=None: FakeBeta()
         fake_gamma_module = types.ModuleType("harness.caste.gamma")
-        fake_gamma_module.Gamma = lambda tool_service=None: object()
+        fake_gamma_module.Gamma = lambda tool_service=None: FakeBeta()
         with (
             patch("harness.config.load_config", return_value={}),
             patch.dict(
@@ -80,29 +103,23 @@ class RouterOpenAIModelTests(unittest.TestCase):
         ):
             router = Router()
 
-            with self.assertRaises(OpenAIRequestError) as json_ctx:
-                router.openai_chat_completion(
+            resp = router.openai_chat_completion(
+                model="beta",
+                messages=[{"role": "user", "content": "hello"}],
+                request_options={"tools": [{"type": "function", "function": {"name": "ping"}}]},
+            )
+            self.assertEqual(resp["model"], "beta")
+            self.assertEqual(resp["choices"][0]["message"]["content"], "tool result")
+
+            chunks = list(
+                router.openai_chat_completion_stream(
                     model="beta",
                     messages=[{"role": "user", "content": "hello"}],
                     request_options={"tools": [{"type": "function", "function": {"name": "ping"}}]},
                 )
-
-            with self.assertRaises(OpenAIRequestError) as stream_ctx:
-                next(
-                    router.openai_chat_completion_stream(
-                        model="beta",
-                        messages=[{"role": "user", "content": "hello"}],
-                        request_options={"tools": [{"type": "function", "function": {"name": "ping"}}]},
-                    )
-                )
-
-            self.assertEqual(
-                str(json_ctx.exception),
-                "tool calling is not supported for beta via the OpenAI-compatible API",
             )
-            self.assertEqual(json_ctx.exception.status, 400)
-            self.assertEqual(json_ctx.exception.error_type, "invalid_request_error")
-            self.assertEqual(str(stream_ctx.exception), str(json_ctx.exception))
+            self.assertEqual(len(chunks), 1)
+            self.assertEqual(chunks[0]["choices"][0]["finish_reason"], "stop")
 
     def test_alpha_invalid_response_does_not_fallback_to_beta(self):
         class FakeAlpha:

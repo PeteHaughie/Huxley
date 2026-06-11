@@ -129,7 +129,7 @@ class RouterAliasCollisionTests(unittest.TestCase):
         fake_gamma_module.Gamma = FakeGamma
 
         with (
-            patch("harness.config.load_config", return_value={"api": {"alpha_model_id": "beta", "beta_model_id": "gemma-4-e4b"}}),
+            patch("harness.config.load_config", return_value={"api": {"alpha_model_id": "beta", "beta_model_id": "gemma-4-12b"}}),
             patch.dict(
                 sys.modules,
                 {
@@ -142,10 +142,10 @@ class RouterAliasCollisionTests(unittest.TestCase):
             from harness.comms.router import Router
 
             router = Router()
-            alpha_model, alpha_handler = router._resolve_openai_model("gemma-4-e4b")
+            alpha_model, alpha_handler = router._resolve_openai_model("gemma-4-12b")
             beta_model, beta_handler = router._resolve_openai_model("beta")
 
-        self.assertEqual(alpha_model, "gemma-4-e4b")
+        self.assertEqual(alpha_model, "gemma-4-12b")
         self.assertEqual(beta_model, "beta")
         self.assertIs(alpha_handler, router._alpha)
         self.assertIs(beta_handler, router._beta)

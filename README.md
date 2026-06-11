@@ -59,11 +59,11 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 
 ### Caste System
 
-| Caste | Model | Engine | Context | Role |
-|-------|-------|--------|---------|------|
-| γ | Apple Foundation Model | [Apfel](https://github.com/Arthur-Ficial/apfel) | 4K | File I/O, classification, extraction, grep generation. Stateless, disposable. |
-| β | [Ternary Bonsai 8B](https://prismml.com/news/ternary-bonsai) | llama.cpp | 8K | Summarisation, routing, task decomposition. Short-term context only. |
-| α | [Gemma 4 e4B](https://ai.google.dev/gemma) 4bit | llama.cpp + MTP + TurboQuant | 32K | Orchestration, HCI, long-term memory, skill dispatch, cloud routing. |
+| Caste | Model | Engine | Context | Tools | Role |
+|-------|-------|--------|---------|-------|------|
+| γ | Apple Foundation Model | [Apfel](https://github.com/Arthur-Ficial/apfel) | 4K | ❌ | File I/O, classification, extraction. Stateless, disposable. |
+| β | [Ternary Bonsai 8B](https://prismml.com/news/ternary-bonsai) | llama-cpp-python | 64K | ✗ text-only | Summarisation, routing, task decomposition, tool execution with `<tool_call>` tags. |
+| α | [Gemma 4 e4B](https://ai.google.dev/gemma) 4bit | llama.cpp server + MTP | 32K | ✅ native | Orchestration, HCI, long-term memory, skill dispatch, tool execution, research. |
 
 ### Job Board
 
@@ -310,7 +310,7 @@ huxley board post unit "refactor parser" --tools
 huxley board post epic "build auth system" --tools
 ```
 
-### Available Tools
+### Available Built-in Tools
 
 | Tool | Description |
 |------|-------------|
@@ -326,18 +326,38 @@ huxley board post epic "build auth system" --tools
 
 Filesystem and search tools restrict access to a set of allowed roots: the project root, `~/.huxley/`, and any paths listed under `tools.path_whitelist`. The `bash` tool only restricts the **working directory** to these allowed roots — shell commands can still access arbitrary absolute paths inside the process. To minimise that exposure, keep `shell` disabled unless you explicitly need it.
 
-Skill tool loading (`tools.builtins.skills`) is disabled by default; enable it only for explicitly trusted skill directories.
+### MCP Server Tools
+
+MCP servers add domain-specific tools via stdio JSON-RPC. The built-in web research MCP server provides three tools for online research:
+
+| Tool | Description |
+|------|-------------|
+| `web_search` | Search the web via DuckDuckGo (with optional Brave API fallback) |
+| `web_fetch` | Fetch and extract readable content from a URL via trafilatura |
+| `web_suggest` | Get autocomplete suggestions for partial queries via DuckDuckGo |
+
+```bash
+# List all tools and their sources (builtin vs mcp:<server-name>)
+huxley tools
+# γ|tool|builtin|read_file
+# γ|tool|builtin|write_file
+# γ|tool|mcp:web-research|web_search
+# γ|tool|mcp:web-research|web_fetch
+```
+
+MCP servers are launched as subprocesses and communicate via JSON-RPC over stdin/stdout. The `mcp_servers` config section maps server names to python module paths:
 
 ```yaml
 tools:
   enabled: true
   max_turns: 10
   builtins:
-    shell: false    # set to true to enable bash (working-dir restricted only)
-    skills: false   # set to true to auto-load skill tools from ~/.agents and ~/.huxley
+    shell: false
+  mcp_servers:
+    web-research:
+      module: harness.web_research.server
   path_whitelist:
     - /Users/me/my-project
-    - /Users/me/.huxley
 ```
 
 ### Tool Flow
@@ -346,11 +366,32 @@ tools:
 prompt + tools: True
   → ToolService.run_loop()
     → model responds (text or tool_call)
-    → if tool_call: execute handler → append result → loop
+    → if tool_call: resolve handler (builtin / skill / MCP bridge)
+      → execute → append result → loop
     → if max_turns exhausted or text response: return
 ```
 
-Tool support is currently available for Alpha (Gemma 4 / llama.cpp with `--tool-call`), Beta (llama.cpp), and Gamma (Apfel v1.3.4+ OpenAI-compatible tool mode).
+Tool support by caste:
+
+| Caste | Tool Calling | Backend |
+|-------|-------------|---------|
+| α | ✅ Native function calling | llama.cpp server `--tool-call` |
+| β | ✗ `<tool_call>` tag parsing | llama-cpp-python local inference + custom tag parser |
+| γ | ❌ | No tools (Router gate rejects before inference) |
+
+The MCP bridge connects to locally-run MCP servers via stdio JSON-RPC. Servers are lazy-connected on first tool access and managed by the ToolRegistry. The default `web-research` server runs as a subprocess of the harness:
+
+```
+Router.dispatch()
+  → ToolService.run_loop()
+    → ToolRegistry.get_handler("web_search")
+      → McpBridge.connect() (lazy, first access only)
+        → subprocess: python -m harness.web_research.server
+        → JSON-RPC over stdin/stdout
+    → handler(**args)
+      → bridge.call_tool("web_search", {"query":"..."})
+      → JSON-RPC request → server → response
+```
 
 ## Apfel Auto-Start
 
@@ -672,8 +713,10 @@ The engine accepts a pluggable `delegate` callable for swarm-aware execution —
 | `huxley --version` | Print version |
 | `huxley init` | Initialise .huxley session in directory |
 | `huxley session` | Show current session info |
+| `huxley tools` | List all tools with source annotations (builtin vs mcp:<server>) |
 | `huxley skills` | List available skills from both skill directories |
-| `huxley infer <caste> <prompt>` | Route prompt through a caste (α, β, or γ) |
+| `huxley infer <caste> <prompt>` | Route prompt through a caste (α, β, or γ); auto-triggers matching skills |
+| `huxley research <question> [--caste]` | Deep research via web tools + structured workflow (loads deep-research skill + MCP tools) |
 | `huxley api` | List all functions and classes across harness modules |
 | `huxley modules` | List all harness modules |
 | `huxley models` | List GGUF models in `~/.huxley/models/` |
@@ -756,6 +799,15 @@ cloud:
   api_key: ""
   model: ""
 
+tools:
+  enabled: true
+  max_turns: 10
+  builtins:
+    shell: false
+  mcp_servers:
+    web-research:
+      module: harness.web_research.server
+
 harness:
   context_hint: caveman
   log_level: INFO
@@ -779,20 +831,76 @@ Optional local planning scratchpads can live at `~/.huxley/ISSUES.md` and `~/.hu
 ~/.huxley/skills/<skill-name>/SKILL.md
 ```
 
-Each skill is a markdown file with YAML frontmatter:
+Each skill is a markdown file with YAML frontmatter that supports scalar values, list values, and boolean flags:
 
 ```markdown
 ---
 name: my-huxley-skill
 description: What this skill does
+triggers:
+  - find out about
+  - investigate
+requires_tools: true
 ---
 
 Skill instructions and system prompts...
 ```
 
+Frontmatter fields:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `name` | string | (required) | Unique skill identifier |
+| `description` | string | `""` | One-line summary shown in `huxley skills` |
+| `triggers` | list | `[]` | Case-insensitive substring triggers matched against every incoming prompt |
+| `requires_tools` | bool | `false` | When `true` and a trigger matches, auto-enables tool execution for the request |
+
+### Auto-Triggering
+
+When a message is dispatched, the Router scans all installed skill triggers against the prompt. If any trigger phrase matches (case-insensitive substring), the skill body is injected as `<skill:<name>>...</skill:<name>>` before the prompt. If the matching skill has `requires_tools: true`, tool execution is automatically enabled for that request.
+
+```
+prompt: "research open source SAST tools for C/C++"
+  → trigger "research" matches deep-research skill
+  → injects <skill:deep-research>workflow...</skill:deep-research>
+  → sets tools: True
+  → Alpha gets skill instructions + web tools + the research question
+```
+
+```bash
+# Auto-triggered research (no explicit --tools needed)
+huxley infer a "research what open source tools replace CodeQL for C/C++ SAST"
+
+# Explicit research command (also loads skill + tools)
+huxley research "best SAST tools for C/C++"
+```
+
 ## Self-Modification
 
-The harness can read, patch, and hot-reload its own source code:
+### Deep Research
+
+The `deep-research` skill (`~/.huxley/skills/deep-research/SKILL.md`) turns Huxley into a structured research assistant. When triggered (by phrases like "research", "investigate", "find out about"), it injects a five-step workflow:
+
+1. **Decompose** — break the question into 3-7 independently searchable sub-questions
+2. **Gather** — call `web_search` and `web_fetch` to collect evidence from multiple sources
+3. **Analyze** — extract key claims, assess source credibility, cross-reference
+4. **Synthesize** — produce a structured report with executive summary, findings, sources, and gaps
+5. **Iterate** — if confidence is low, refine queries and gather more evidence
+
+```bash
+# Via auto-trigger (any prompt with "research" or "investigate" etc.)
+huxley infer a "investigate the Rust memory model vs C++"
+
+# Via explicit research command (same result, explicit naming)
+huxley research "best practices for dataflow analysis in C/C++"
+
+# Use Beta instead of Alpha (cheaper but no native tool calling)
+huxley research "list open source SAST tools" --caste beta
+```
+
+The skill auto-enables web tools (`web_search`, `web_fetch`, `web_suggest`) via the MCP bridge, and prefers primary sources over secondary. On Alpha (Gemma 4) the model calls tools natively; on Beta it uses `<tool_call>` JSON tags.
+
+## Self-Modification
 
 - **Introspection** (`harness/selfmod/introspect.py`): AST-based API surface discovery. Maps all modules, classes, functions with line numbers.
 - **Patcher** (`harness/selfmod/patcher.py`): Diff generation, dry-run, apply with backup, rollback. Patches stored in `~/.huxley/patches/`.
@@ -863,16 +971,23 @@ Huxley/
 │   │   ├── __init__.py
 │   │   ├── peer.py          # Peer table with TTL-based staleness
 │   │   └── discovery.py     # UDP multicast discovery service
-│   ├── tool/
-│   │   ├── __init__.py
-│   │   ├── decorator.py     # @tool() decorator, JSON Schema generation
-│   │   ├── registry.py      # Built-in + skill tool loading
-│   │   ├── engine.py        # ToolService run_loop (multi-turn tool calling)
-│   │   └── builtins/
-│   │       ├── __init__.py
-│   │       ├── filesystem.py # read/write/edit/delete/glob/listdir/create
-│   │       ├── search.py     # grep
-│   │       └── shell.py      # bash (disabled by default)
+    │   ├── tool/
+    │   │   ├── __init__.py
+    │   │   ├── decorator.py     # @tool() decorator, JSON Schema generation
+    │   │   ├── registry.py      # Built-in + skill + MCP tool loading
+    │   │   ├── engine.py        # ToolService run_loop (multi-turn tool calling)
+    │   │   ├── mcp_bridge.py    # stdio JSON-RPC MCP client bridge
+    │   │   └── builtins/
+    │   │       ├── __init__.py
+    │   │       ├── filesystem.py # read/write/edit/delete/glob/listdir/create
+    │   │       ├── search.py     # grep
+    │   │       └── shell.py      # bash (disabled by default)
+    │   ├── web_research/
+    │   │   ├── __init__.py
+    │   │   ├── server.py        # FastMCP server (web_search, web_fetch, web_suggest)
+    │   │   ├── search.py        # DuckDuckGo + Brave search backends
+    │   │   ├── fetch.py         # Trafilatura URL content extraction
+    │   │   └── suggest.py       # DuckDuckGo autocomplete API
 │   ├── adev/
 │   │   ├── __init__.py
 │   │   └── engine.py        # AdversarialDevEngine (Programmer/Roaster/Adjudicator loop)

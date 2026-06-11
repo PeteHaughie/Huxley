@@ -89,6 +89,6 @@ class OpenAICompatibleClient:
             return {}
         return {
             key: request_options[key]
-            for key in ("tools", "tool_choice", "functions", "function_call", "response_format")
+            for key in ("tools", "tool_choice", "functions", "function_call", "response_format", "reasoning", "reasoning_effort", "think")
             if key in request_options
         }

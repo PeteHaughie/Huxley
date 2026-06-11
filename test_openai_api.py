@@ -21,8 +21,8 @@ class _FakeScheduler:
 
     def openai_models(self) -> list[dict]:
         return [
-            {"id": "gemma-4-e4b", "object": "model", "created": 0, "owned_by": "huxley-alpha", "permission": [], "root": "gemma-4-e4b", "parent": None},
-            {"id": "alpha", "object": "model", "created": 0, "owned_by": "huxley-alpha", "permission": [], "root": "gemma-4-e4b", "parent": "gemma-4-e4b"},
+            {"id": "gemma-4-12b", "object": "model", "created": 0, "owned_by": "huxley-alpha", "permission": [], "root": "gemma-4-12b", "parent": None},
+            {"id": "alpha", "object": "model", "created": 0, "owned_by": "huxley-alpha", "permission": [], "root": "gemma-4-12b", "parent": "gemma-4-12b"},
             {"id": "ternary-bonsai-8b", "object": "model", "created": 0, "owned_by": "huxley-beta", "permission": [], "root": "ternary-bonsai-8b", "parent": None},
             {"id": "beta", "object": "model", "created": 0, "owned_by": "huxley-beta", "permission": [], "root": "ternary-bonsai-8b", "parent": "ternary-bonsai-8b"},
         ]
@@ -122,7 +122,7 @@ class OpenAIAPITests(unittest.TestCase):
 
         self.assertEqual(payload["object"], "list")
         model_ids = [item["id"] for item in payload["data"]]
-        self.assertEqual(model_ids, ["gemma-4-e4b", "alpha", "ternary-bonsai-8b", "beta"])
+        self.assertEqual(model_ids, ["gemma-4-12b", "alpha", "ternary-bonsai-8b", "beta"])
 
     def test_status_route_reports_actual_server_port(self):
         with urllib.request.urlopen(f"{self.base_url}/v1/status", timeout=5) as resp:
@@ -182,7 +182,7 @@ class OpenAIAPITests(unittest.TestCase):
             f"{self.base_url}/v1/chat/completions",
             data=json.dumps(
                 {
-                    "model": "gemma-4-e4b",
+                    "model": "gemma-4-12b",
                     "messages": [{"role": "user", "content": "use the ping tool"}],
                     "tools": [
                         {
@@ -209,7 +209,7 @@ class OpenAIAPITests(unittest.TestCase):
         with urllib.request.urlopen(req, timeout=5) as resp:
             payload = json.loads(resp.read())
 
-        self.assertEqual(payload["model"], "gemma-4-e4b")
+        self.assertEqual(payload["model"], "gemma-4-12b")
         self.assertEqual(len(self.fake_scheduler.calls), 1)
         opts = self.fake_scheduler.calls[0]["request_options"]
         self.assertEqual(opts["tool_choice"], "auto")
@@ -521,7 +521,7 @@ class OpenAIAPITests(unittest.TestCase):
 
     def test_chat_completions_request_errors_return_400(self):
         def invalid_request(**_kwargs):
-            raise daemon_server.OpenAIRequestError("tool calling is not supported for beta via the OpenAI-compatible API")
+            raise daemon_server.OpenAIRequestError("some error for testing")
 
         self.fake_scheduler.openai_chat_completion = invalid_request
         req = urllib.request.Request(
@@ -543,7 +543,7 @@ class OpenAIAPITests(unittest.TestCase):
         payload = json.loads(ctx.exception.read())
         self.assertEqual(
             payload["error"]["message"],
-            "tool calling is not supported for beta via the OpenAI-compatible API",
+            "some error for testing",
         )
         self.assertEqual(payload["error"]["type"], "invalid_request_error")
 

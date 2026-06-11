@@ -8,6 +8,7 @@ from harness.config import ensure_huxley_dirs, resolve_path
 from harness.memory import SessionStore
 from harness.comms import Message, Caste, Action, ContextHint
 from harness.comms.router import Router
+from harness.skill.loader import load_skill
 from harness.skill.registry import SkillRegistry
 from harness.selfmod.introspect import module_map, api_surface
 from harness.selfmod.patcher import Patcher, PATCH_DIR
@@ -82,6 +83,24 @@ def cmd_compact(args):
         print(f"γ|compact|ok|{count} entries (auto-compacted during infer)", flush=True)
 
 
+def cmd_tools(args):
+    router = Router()
+    reg = router._ts.registry
+    mcp_sources = reg.list_mcp_sources()
+    tools = reg.list_tools()
+    if not tools:
+        print("γ|tools|none", flush=True)
+        return
+    for t in tools:
+        source = "builtin"
+        for ms in mcp_sources:
+            if t in ms["tools"]:
+                source = f"mcp:{ms['name']}"
+                break
+        print(f"γ|tool|{source}|{t}", flush=True)
+    reg.disconnect_mcp_servers()
+
+
 def cmd_skills(args):
     reg = SkillRegistry()
     reg.refresh()
@@ -91,6 +110,49 @@ def cmd_skills(args):
         return
     for s in skills:
         print(f"γ|skill|{s['name']}|{s['description'][:80]}", flush=True)
+
+
+def cmd_research(args):
+    skill_content = load_skill("deep-research")
+    if skill_content is None:
+        print("γ|research|err|deep-research skill not found", flush=True)
+        return
+    router = Router()
+    reg = router._ts.registry
+    tool_names = [d["function"]["name"] for d in reg.definitions()]
+    web_tools_hint = ""
+    for name in ("web_search", "web_fetch", "web_suggest"):
+        if name in tool_names:
+            web_tools_hint += f"  - {name}\n"
+    prompt = (
+        f"<research_workflow>\n{skill_content}\n</research_workflow>\n\n"
+        f"<available_tools>\n"
+        f"You have access to these tools for web research:\n"
+        f"{web_tools_hint}"
+        f"To use a tool, output EXACTLY one line like:\n"
+        f"<tool_call>{{\"name\":\"web_search\",\"arguments\":{{\"query\":\"your query\",\"max_results\":5}}}}</tool_call>\n"
+        f"Then wait for the result. You can call multiple tools sequentially.\n"
+        f"</available_tools>\n\n"
+        f"Research question: {args.prompt}"
+    )
+    sid, work_dir = SessionStore.resolve_session(args.dir)
+    caste = Caste.from_alias(args.caste)
+    if not getattr(router._routes.get(caste), "supports_tools", False):
+        print(f"γ|research|err|{caste.value} does not support tools; use alpha or beta", flush=True)
+        return
+    msg = Message(
+        caste=caste,
+        action=Action.INFER,
+        payload={"prompt": prompt, "tools": True},
+        context_hint=ContextHint(args.context),
+        session=sid,
+    )
+    resp = router.dispatch(msg)
+    payload = resp.payload
+    if "error" in payload:
+        print(f"γ|research|err|{payload['error']}", flush=True)
+    else:
+        print(payload.get("result", ""), flush=True)
 
 
 def cmd_infer(args):
@@ -283,6 +345,19 @@ def cmd_daemon(args):
     elif args.daemon_cmd == "stop":
         ok = stop_daemon()
         print("γ|huxleyd|stop|ok" if ok else "γ|huxleyd|stop|not_running", flush=True)
+    elif args.daemon_cmd == "restart":
+        was_running = is_running()
+        stop_daemon()
+        ok = start_daemon()
+        if ok:
+            print("γ|huxleyd|restart|ok", flush=True)
+        else:
+            print(
+                "γ|huxleyd|restart|start_failed"
+                if was_running
+                else "γ|huxleyd|restart|not_running",
+                flush=True,
+            )
     elif args.daemon_cmd == "status":
         st = daemon_status()
         if st["running"]:
@@ -694,8 +769,22 @@ def build_parser() -> argparse.ArgumentParser:
     session_p = sub.add_parser("session", help="Show current session info")
     session_p.add_argument("--dir", default=None, help="Target directory")
 
+    tools_p = sub.add_parser("tools", help="List available tools and their sources")
+    tools_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
+
     skills_p = sub.add_parser("skills", help="List available skills")
     skills_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
+
+    research_p = sub.add_parser("research", help="Deep research via web tools + structured workflow")
+    research_p.add_argument("prompt", help="Research question")
+    research_p.add_argument(
+        "--caste", choices=["a", "b", "alpha", "beta"], default="alpha",
+        help="Caste for research (default: alpha, supports tools)",
+    )
+    research_p.add_argument(
+        "--context", choices=["caveman", "normal", "full"], default="caveman",
+    )
+    research_p.add_argument("--dir", default=None, help=argparse.SUPPRESS)
 
     infer_p = sub.add_parser("infer", help="Run inference on a caste")
     infer_p.add_argument(
@@ -804,6 +893,7 @@ def build_parser() -> argparse.ArgumentParser:
     daemon_sub = daemon_p.add_subparsers(dest="daemon_cmd")
     daemon_sub.add_parser("start", help="Start huxleyd in background")
     daemon_sub.add_parser("stop", help="Stop huxleyd")
+    daemon_sub.add_parser("restart", help="Restart huxleyd")
     daemon_sub.add_parser("status", help="Check if huxleyd is running")
 
     sched_p = sub.add_parser("schedule", help="Manage scheduled tasks")
@@ -911,6 +1001,10 @@ def main():
         cmd_init(args)
     elif args.command == "session":
         cmd_session(args)
+    elif args.command == "tools":
+        cmd_tools(args)
+    elif args.command == "research":
+        cmd_research(args)
     elif args.command == "skills":
         cmd_skills(args)
     elif args.command == "infer":

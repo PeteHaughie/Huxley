@@ -259,7 +259,7 @@ class AdversarialDevEngineTests(TestCase):
             engine.run(task="feature", workdir=d, max_rounds=1)
 
         self.assertGreaterEqual(len(seen_cwds), 2)
-        self.assertTrue(all(cwd == os.path.abspath(d) for cwd in seen_cwds))
+        self.assertTrue(all(os.path.realpath(cwd) == os.path.realpath(d) for cwd in seen_cwds))
         self.assertEqual(os.getcwd(), original_cwd)
 
     def test_run_with_workdir_does_not_persist_tool_root_whitelist(self):
