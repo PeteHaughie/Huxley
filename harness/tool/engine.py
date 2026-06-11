@@ -10,7 +10,7 @@ _TEXT_TOOL_RE = re.compile(
     re.DOTALL,
 )
 _TEXT_TOOL_INPUT_RE = re.compile(
-    r'"action_input"\s*:\s*("(?:\\.|[^"\\])*"|\{(?:\\.|[^{}])*\})',
+    r'"action_input"\s*:\s*("(?:[^"\\]|\\.)*"|\{[^{}]*\})',
     re.DOTALL,
 )
 
