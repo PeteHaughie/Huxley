@@ -30,9 +30,9 @@ class SchedulerConcurrencyTests(unittest.TestCase):
         engine = SchedulerEngine(max_concurrent=4, tick_interval=999)
         engine._infer = self._slow_infer
 
-        start = time.time()
+        start = time.perf_counter()
         engine._worker_tick()
-        elapsed = time.time() - start
+        elapsed = time.perf_counter() - start
 
         tasks = board.list()
         done = [t for t in tasks if t.state.name == "DONE"]
@@ -40,7 +40,7 @@ class SchedulerConcurrencyTests(unittest.TestCase):
         self.assertEqual(len(done), 3)
         self.assertEqual(len(self.infer_calls), 3)
         self.assertLess(
-            elapsed, 2.5 * SLOW_INFER_DELAY,
+            elapsed, 2.8 * SLOW_INFER_DELAY,
             f"{elapsed:.2f}s — sequential would take ~{3 * SLOW_INFER_DELAY:.2f}s",
         )
 

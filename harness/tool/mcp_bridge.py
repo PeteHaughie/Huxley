@@ -41,6 +41,12 @@ class McpBridge:
         with self._lock:
             if self._connected:
                 return
+            if not self._auto_start:
+                return
+            if not self._command:
+                raise RuntimeError(
+                    f"MCP server '{self._name}' has no command configured"
+                )
             self._start_process()
             self._handshake()
             self._discover_tools()
@@ -107,6 +113,15 @@ class McpBridge:
             stderr=subprocess.PIPE,
             env=merged_env,
         )
+        self._stderr_lines: list[str] = []
+
+        def _drain_stderr():
+            assert self._proc is not None and self._proc.stderr is not None
+            for raw in self._proc.stderr:
+                line = raw.decode(errors="replace").rstrip()
+                self._stderr_lines = (self._stderr_lines + [line])[-100:]
+
+        threading.Thread(target=_drain_stderr, daemon=True).start()
 
     def _send_request(self, method: str, params: dict | None = None) -> dict:
         self._req_id += 1
@@ -135,7 +150,7 @@ class McpBridge:
             raise RuntimeError("MCP bridge process not running")
         line = self._proc.stdout.readline()
         if not line:
-            stderr = self._proc.stderr.read().decode() if self._proc.stderr else ""
+            stderr = "\n".join(getattr(self, "_stderr_lines", [])[-10:])
             raise RuntimeError(
                 f"MCP server process ended (exit={self._proc.poll()}, stderr={stderr[:200]})"
             )

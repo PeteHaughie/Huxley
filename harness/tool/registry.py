@@ -3,6 +3,7 @@ import hashlib
 import importlib
 import importlib.util
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Callable, TYPE_CHECKING
 
@@ -29,6 +30,7 @@ class ToolRegistry:
         self._mcp_bridges_cfg: dict = mcp_bridges_cfg or {}
         self._mcp_bridges: dict[str, McpBridge] = {}
         self._mcp_connected = False
+        self._mcp_lock = threading.Lock()
         self._mcp_tool_index: dict[str, tuple[str, dict]] = {}
 
         self._skill_tool_map: dict[str, list[str]] = {}
@@ -74,24 +76,27 @@ class ToolRegistry:
     def _connect_mcp_servers(self):
         if self._mcp_connected:
             return
-        from harness.tool.mcp_bridge import McpBridge
+        with self._mcp_lock:
+            if self._mcp_connected:
+                return
+            from harness.tool.mcp_bridge import McpBridge
 
-        for server_name, server_cfg in self._mcp_bridges_cfg.items():
-            if not isinstance(server_cfg, dict):
-                continue
-            bridge = McpBridge(server_name, server_cfg)
-            try:
-                defs = bridge.definitions()
-                for d in defs:
-                    fn_name = d["function"]["name"]
-                    self._mcp_tool_index[fn_name] = (server_name, d)
-                self._mcp_bridges[server_name] = bridge
-            except Exception as e:
-                print(
-                    f"\u03b3|tool|mcp_connect_err|{server_name}|{e}",
-                    flush=True,
-                )
-        self._mcp_connected = True
+            for server_name, server_cfg in self._mcp_bridges_cfg.items():
+                if not isinstance(server_cfg, dict):
+                    continue
+                bridge = McpBridge(server_name, server_cfg)
+                try:
+                    defs = bridge.definitions()
+                    for d in defs:
+                        fn_name = d["function"]["name"]
+                        self._mcp_tool_index[fn_name] = (server_name, d)
+                    self._mcp_bridges[server_name] = bridge
+                except Exception as e:
+                    print(
+                        f"\u03b3|tool|mcp_connect_err|{server_name}|{e}",
+                        flush=True,
+                    )
+            self._mcp_connected = True
 
     def _get_mcp_handler(self, name: str) -> Callable | None:
         match = self._mcp_tool_index.get(name)
@@ -224,14 +229,15 @@ class ToolRegistry:
         return sources
 
     def disconnect_mcp_servers(self):
-        for bridge in self._mcp_bridges.values():
-            try:
-                bridge.disconnect()
-            except Exception:
-                pass
-        self._mcp_bridges.clear()
-        self._mcp_tool_index.clear()
-        self._mcp_connected = False
+        with self._mcp_lock:
+            for bridge in self._mcp_bridges.values():
+                try:
+                    bridge.disconnect()
+                except Exception:
+                    pass
+            self._mcp_bridges.clear()
+            self._mcp_tool_index.clear()
+            self._mcp_connected = False
 
     @staticmethod
     def reset():

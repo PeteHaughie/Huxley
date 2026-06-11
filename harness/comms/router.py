@@ -25,13 +25,10 @@ class OpenAIRequestError(Exception):
         self.error_type = error_type
 
 
-def _match_skills(prompt: str) -> list[dict]:
-    from harness.skill.registry import SkillRegistry
-
-    reg = SkillRegistry()
+def _match_skills(prompt: str, all_skills: list[dict]) -> list[dict]:
     prompt_lower = prompt.lower()
     matches = []
-    for skill in reg.all_with_triggers():
+    for skill in all_skills:
         for trigger in skill["triggers"]:
             if trigger.lower() in prompt_lower:
                 matches.append(skill)
@@ -123,7 +120,7 @@ class Router:
 
         from harness.skill.registry import SkillRegistry
         all_skills = SkillRegistry().all_with_triggers()
-        matched_names = set(s["name"] for s in _match_skills(prompt))
+        matched_names = set(s["name"] for s in _match_skills(prompt, all_skills))
         if all_skills:
             catalog = self._build_skill_catalog(all_skills, matched_names)
             augmented_prompt = f"{catalog}\n\n{prompt}" if prompt else catalog
