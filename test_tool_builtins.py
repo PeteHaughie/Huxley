@@ -4,7 +4,7 @@ from inspect import signature
 from pathlib import Path
 from unittest.mock import patch
 
-from harness.tool.builtins import filesystem, search, shell
+from harness.tool.builtins import filesystem, search, shell, tools
 from harness.tool.decorator import clear_registered_tools
 
 
@@ -248,6 +248,16 @@ def test_bash_timeout(tmp_path: Path):
 def test_bash_disallowed_workdir():
     result = shell.bash("echo test", workdir="/etc")
     assert "Error: working directory not allowed" in result
+
+
+def test_tool_info_accepts_builtin_prefix():
+    clear_registered_tools()
+    reg = __import__("harness.tool.registry", fromlist=["ToolRegistry"]).ToolRegistry()
+    tools.set_registry(reg)
+
+    result = tools.tool_info("builtin:read_file")
+
+    assert '"name": "read_file"' in result
 
 
 def _run_test(fn):

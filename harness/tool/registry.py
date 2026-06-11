@@ -34,6 +34,7 @@ class ToolRegistry:
         self._mcp_tool_index: dict[str, tuple[str, dict]] = {}
 
         self._skill_tool_map: dict[str, list[str]] = {}
+        self._skills_lock = threading.Lock()
 
         from harness.tool.builtins.tools import set_registry
         set_registry(self)
@@ -113,22 +114,25 @@ class ToolRegistry:
         return _handler
 
     def scan_skills(self, skill_name: str | None = None):
-        if skill_name is None and self._skills_scanned:
-            return
         if not self._skills_scan_enabled:
             return
-        for skills_dir in _skill_dirs():
-            for entry in sorted(skills_dir.iterdir()):
-                if not entry.is_dir():
-                    continue
-                if skill_name and entry.name != skill_name:
-                    continue
-                tools_dir = entry / "tools"
-                if not tools_dir.is_dir():
-                    continue
-                self._load_tools_from(tools_dir, skill_name=entry.name)
-        if skill_name is None:
-            self._skills_scanned = True
+        if skill_name is None and self._skills_scanned:
+            return
+        with self._skills_lock:
+            if skill_name is None and self._skills_scanned:
+                return
+            for skills_dir in _skill_dirs():
+                for entry in sorted(skills_dir.iterdir()):
+                    if not entry.is_dir():
+                        continue
+                    if skill_name and entry.name != skill_name:
+                        continue
+                    tools_dir = entry / "tools"
+                    if not tools_dir.is_dir():
+                        continue
+                    self._load_tools_from(tools_dir, skill_name=entry.name)
+            if skill_name is None:
+                self._skills_scanned = True
 
     def _load_tools_from(self, tools_dir: Path, skill_name: str | None = None):
         root_key = hashlib.sha1(str(tools_dir.resolve()).encode("utf-8")).hexdigest()[:12]

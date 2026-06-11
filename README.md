@@ -63,7 +63,7 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 |-------|-------|--------|---------|-------|------|
 | γ | Apple Foundation Model | [Apfel](https://github.com/Arthur-Ficial/apfel) | 4K | ❌ | File I/O, classification, extraction. Stateless, disposable. |
 | β | [Ternary Bonsai 8B](https://prismml.com/news/ternary-bonsai) | llama-server subprocess | 64K | ✗ `<tool_call>` tag parsing | Summarisation, routing, task decomposition, tool execution with `<tool_call>` tags. |
-| α | [Gemma 4 e4B](https://ai.google.dev/gemma) 4bit | llama.cpp server | 32K | ✅ native | Orchestration, HCI, long-term memory, skill dispatch, tool execution, research. |
+| α | [Gemma 4 12B](https://ai.google.dev/gemma) | llama.cpp server | 64K | ✅ native | Orchestration, HCI, long-term memory, skill dispatch, tool execution, research. |
 
 ### Job Board
 
@@ -807,7 +807,8 @@ tools:
     shell: false
   mcp_servers:
     web-research:
-      module: harness.web_research.server
+      command: python
+      args: ["-m", "harness.web_research.server"]
 
 harness:
   context_hint: caveman

@@ -51,6 +51,31 @@ class BetaRecoveryTests(unittest.TestCase):
         self.assertTrue(beta._should_restart_for_error(RuntimeError("timed out")))
         self.assertFalse(beta._should_restart_for_error(RuntimeError("model load failed")))
 
+    def test_start_server_fails_fast_when_port_owned_by_foreign_process(self):
+        beta = Beta({"port": 8082})
+        beta._client = MagicMock()
+        beta._client.health.return_value = True
+
+        with patch.object(beta, "_listener_pid", return_value=4321):
+            with self.assertRaisesRegex(RuntimeError, "beta port 8082 already in use by pid 4321"):
+                beta.start_server()
+
+    def test_start_server_can_clear_foreign_listener_when_opted_in(self):
+        beta = Beta({"port": 8082, "kill_stale_listener": True})
+        beta._client = MagicMock()
+        beta._client.health.return_value = False
+
+        with (
+            patch.object(beta, "_listener_pid", side_effect=[4321, None]),
+            patch.object(beta, "_clear_stale_listener") as clear_listener,
+            patch("harness.caste.beta.subprocess.Popen") as popen,
+            patch.object(beta, "_wait_for_server", return_value=True),
+        ):
+            popen.return_value = MagicMock(stderr=MagicMock())
+            self.assertTrue(beta.start_server())
+
+        clear_listener.assert_called_once_with(4321)
+
 
 if __name__ == "__main__":
     unittest.main()

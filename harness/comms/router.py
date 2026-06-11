@@ -36,6 +36,18 @@ def _match_skills(prompt: str, all_skills: list[dict]) -> list[dict]:
     return matches
 
 
+def _requests_openai_tools(request_options: dict | None) -> bool:
+    if not isinstance(request_options, dict):
+        return False
+    if request_options.get("tools") or request_options.get("functions"):
+        return True
+    tool_choice = request_options.get("tool_choice")
+    if tool_choice not in (None, False, "none"):
+        return True
+    function_call = request_options.get("function_call")
+    return function_call not in (None, False, "none")
+
+
 class Router:
     _alpha: Alpha
     _beta: Beta
@@ -121,7 +133,7 @@ class Router:
         from harness.skill.registry import SkillRegistry
         all_skills = SkillRegistry().all_with_triggers()
         matched_names = set(s["name"] for s in _match_skills(prompt, all_skills))
-        if all_skills:
+        if matched_names:
             catalog = self._build_skill_catalog(all_skills, matched_names)
             augmented_prompt = f"{catalog}\n\n{prompt}" if prompt else catalog
             requires_tools = any(
@@ -287,8 +299,14 @@ class Router:
         canonical_model, handler = self._resolve_openai_model(model)
         max_output = max_tokens if max_tokens is not None else 512
         created = int(time.time())
+        caller_requested_tools = _requests_openai_tools(request_options)
 
-        if handler is self._alpha and self._tools_enabled and self._ts is not None:
+        if (
+            handler is self._alpha
+            and caller_requested_tools
+            and self._tools_enabled
+            and self._ts is not None
+        ):
             system_tools = self._get_system_tools()
             if system_tools:
                 client_tools = list(request_options.get("tools", [])) if request_options else []
@@ -326,11 +344,12 @@ class Router:
                 request_options=request_options,
             )
             if isinstance(response, dict):
-                result = self._try_text_tool_execution(
-                    response, messages, max_output, temperature, canonical_model
-                )
-                if result is not None:
-                    return result
+                if caller_requested_tools:
+                    result = self._try_text_tool_execution(
+                        response, messages, max_output, temperature, canonical_model
+                    )
+                    if result is not None:
+                        return result
                 response["model"] = canonical_model
                 response.setdefault("object", "chat.completion")
                 response.setdefault("created", created)
@@ -365,8 +384,14 @@ class Router:
         max_output = max_tokens if max_tokens is not None else 512
         created = int(time.time())
         completion_id = f"chatcmpl-{created}"
+        caller_requested_tools = _requests_openai_tools(request_options)
 
-        if handler is self._alpha and self._tools_enabled and self._ts is not None:
+        if (
+            handler is self._alpha
+            and caller_requested_tools
+            and self._tools_enabled
+            and self._ts is not None
+        ):
             system_tools = self._get_system_tools()
             if system_tools:
                 client_tools = list(request_options.get("tools", [])) if request_options else []
@@ -407,56 +432,10 @@ class Router:
                 return
 
         if handler is self._alpha:
-            chunks = list(
-                self._alpha.stream_chat(
-                    messages, max_output, temperature=temperature,
-                    request_options=request_options,
-                )
-            )
-            full_content = ""
-            for chunk in chunks:
-                for choice in chunk.get("choices", []):
-                    delta = choice.get("delta", {})
-                    if isinstance(delta, dict) and delta.get("content"):
-                        full_content += delta["content"]
-            if self._ts is not None and self._tools_enabled:
-                from harness.tool.engine import _parse_text_tool
-                text_tool = _parse_text_tool(full_content)
-                if text_tool:
-                    system_tools = self._get_system_tools()
-                    if system_tools:
-                        def model_fn(messages, **kw):
-                            kw.pop("tool_choice", None)
-                            resp = handler.complete_chat(
-                                messages=messages,
-                                max_tokens=max_output,
-                                temperature=temperature,
-                                request_options=kw if kw else None,
-                            )
-                            if not isinstance(resp, dict):
-                                raise RuntimeError(
-                                    f"invalid response from {canonical_model} model backend"
-                                )
-                            return resp
-                        resp = self._ts.run_loop(
-                            model_fn=model_fn, messages=messages, tools=system_tools
-                        )
-                        content = resp.get("choices", [{}])[0].get("message", {}).get("content", "")
-                        yield {
-                            "id": completion_id,
-                            "object": "chat.completion.chunk",
-                            "created": created,
-                            "model": canonical_model,
-                            "choices": [
-                                {
-                                    "index": 0,
-                                    "delta": {"content": content},
-                                    "finish_reason": "stop",
-                                }
-                            ],
-                        }
-                        return
-            for chunk in chunks:
+            for chunk in self._alpha.stream_chat(
+                messages, max_output, temperature=temperature,
+                request_options=request_options,
+            ):
                 yield self._normalize_alpha_stream_chunk(
                     chunk, canonical_model, created, completion_id
                 )

@@ -32,6 +32,11 @@ def list_tools() -> str:
 )
 def tool_info(tool_name: str) -> str:
     global _REGISTRY
+    normalized_name = tool_name
+    if ":" in normalized_name:
+        prefix, candidate = normalized_name.split(":", 1)
+        if prefix in {"builtin", "mcp"} and candidate:
+            normalized_name = candidate
     if _REGISTRY is not None:
         defs = _REGISTRY.definitions()
     else:
@@ -39,7 +44,7 @@ def tool_info(tool_name: str) -> str:
         reg = ToolRegistry()
         defs = reg.definitions()
     for d in defs:
-        if d["function"]["name"] == tool_name:
+        if d["function"]["name"] == normalized_name:
             import json
             return json.dumps(d, indent=2)
     return f"Tool '{tool_name}' not found"

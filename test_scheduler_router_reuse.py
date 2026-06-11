@@ -1,7 +1,7 @@
 import sys
 import types
 import unittest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from harness.comms.message import Action, Caste, Message
 from harness.comms.router import OpenAIRequestError, Router
@@ -38,17 +38,36 @@ class SchedulerRouterReuseTests(unittest.TestCase):
 
 class RouterOpenAIModelTests(unittest.TestCase):
     @patch("harness.config.load_config", return_value={"api": {"alpha_model_id": 123, "beta_model_id": ""}})
-    @patch("harness.caste.gamma.Gamma")
-    @patch("harness.caste.beta.Beta")
-    @patch("harness.caste.alpha.Alpha")
-    def test_openai_models_cache_config_and_normalize_aliases(
-        self,
-        _alpha_cls,
-        _beta_cls,
-        _gamma_cls,
-        load_config_mock,
-    ):
-        router = Router()
+    def test_openai_models_cache_config_and_normalize_aliases(self, load_config_mock):
+        fake_alpha_module = types.ModuleType("harness.caste.alpha")
+        fake_beta_module = types.ModuleType("harness.caste.beta")
+        fake_gamma_module = types.ModuleType("harness.caste.gamma")
+
+        class FakeAlpha:
+            def __init__(self, tool_service=None):
+                pass
+
+        class FakeBeta:
+            def __init__(self, tool_service=None):
+                pass
+
+        class FakeGamma:
+            def __init__(self, tool_service=None):
+                pass
+
+        fake_alpha_module.Alpha = FakeAlpha
+        fake_beta_module.Beta = FakeBeta
+        fake_gamma_module.Gamma = FakeGamma
+
+        with patch.dict(
+            sys.modules,
+            {
+                "harness.caste.alpha": fake_alpha_module,
+                "harness.caste.beta": fake_beta_module,
+                "harness.caste.gamma": fake_gamma_module,
+            },
+        ):
+            router = Router()
 
         model_ids = [model["id"] for model in router.openai_models()]
         resolved_id, _handler = router._resolve_openai_model("123")
@@ -214,6 +233,156 @@ class RouterOpenAIModelTests(unittest.TestCase):
         self.assertIn("error", resp.payload)
         self.assertIn("disabled", resp.payload["error"])
         self.assertEqual(gamma_calls["count"], 0)
+
+    def test_dispatch_only_injects_skill_catalog_for_matching_skills(self):
+        class _FakeCaste:
+            supports_tools = True
+
+            def __init__(self, result_caste: Caste):
+                self._result_caste = result_caste
+                self.prompts = []
+
+            def infer(self, msg):
+                self.prompts.append(msg.payload["prompt"])
+                return Message(
+                    caste=self._result_caste,
+                    action=Action.INFER,
+                    payload={"content": "ok"},
+                )
+
+        fake_alpha = _FakeCaste(Caste.ALPHA)
+        fake_alpha_module = types.ModuleType("harness.caste.alpha")
+        fake_beta_module = types.ModuleType("harness.caste.beta")
+        fake_gamma_module = types.ModuleType("harness.caste.gamma")
+        fake_alpha_module.Alpha = lambda tool_service=None: fake_alpha
+        fake_beta_module.Beta = lambda tool_service=None: _FakeCaste(Caste.BETA)
+        fake_gamma_module.Gamma = lambda tool_service=None: _FakeCaste(Caste.GAMMA)
+
+        with (
+            patch("harness.config.load_config", return_value={}),
+            patch("harness.skill.registry.SkillRegistry.all_with_triggers", return_value=[
+                {
+                    "name": "web-search",
+                    "description": "search",
+                    "triggers": ["find out about"],
+                    "requires_tools": False,
+                }
+            ]),
+            patch.dict(
+                sys.modules,
+                {
+                    "harness.caste.alpha": fake_alpha_module,
+                    "harness.caste.beta": fake_beta_module,
+                    "harness.caste.gamma": fake_gamma_module,
+                },
+            ),
+        ):
+            router = Router()
+            router.dispatch(
+                Message(
+                    caste=Caste.ALPHA,
+                    action=Action.INFER,
+                    payload={"prompt": "hello"},
+                )
+            )
+            router.dispatch(
+                Message(
+                    caste=Caste.ALPHA,
+                    action=Action.INFER,
+                    payload={"prompt": "please find out about oceans"},
+                )
+            )
+
+        self.assertEqual(fake_alpha.prompts[0], "hello")
+        self.assertIn("<available_skills>", fake_alpha.prompts[1])
+
+    def test_openai_alpha_chat_without_tool_request_skips_tool_loop(self):
+        class FakeAlpha:
+            def __init__(self, tool_service=None):
+                self.calls = []
+
+            def complete_chat(self, messages, max_tokens, temperature=0.1, request_options=None):
+                self.calls.append(request_options)
+                return {
+                    "choices": [{
+                        "message": {"content": "plain text", "role": "assistant"},
+                        "finish_reason": "stop",
+                    }]
+                }
+
+        fake_alpha_module = types.ModuleType("harness.caste.alpha")
+        fake_beta_module = types.ModuleType("harness.caste.beta")
+        fake_gamma_module = types.ModuleType("harness.caste.gamma")
+        fake_alpha_module.Alpha = FakeAlpha
+        fake_beta_module.Beta = lambda tool_service=None: MagicMock()
+        fake_gamma_module.Gamma = lambda tool_service=None: MagicMock()
+        tool_service = MagicMock()
+        tool_service.run_loop = MagicMock()
+
+        with (
+            patch("harness.config.load_config", return_value={}),
+            patch.dict(
+                sys.modules,
+                {
+                    "harness.caste.alpha": fake_alpha_module,
+                    "harness.caste.beta": fake_beta_module,
+                    "harness.caste.gamma": fake_gamma_module,
+                },
+            ),
+        ):
+            router = Router(tool_service=tool_service)
+            router._get_system_tools = MagicMock(return_value=[{"function": {"name": "read_file"}}])
+            resp = router.openai_chat_completion(
+                model="alpha",
+                messages=[{"role": "user", "content": "hello"}],
+            )
+
+        self.assertEqual(resp["choices"][0]["message"]["content"], "plain text")
+        tool_service.run_loop.assert_not_called()
+
+    def test_openai_alpha_stream_without_tool_request_preserves_streaming(self):
+        events = []
+
+        class FakeAlpha:
+            def __init__(self, tool_service=None):
+                pass
+
+            def stream_chat(self, messages, max_tokens, temperature=0.1, request_options=None):
+                events.append("first")
+                yield {"choices": [{"delta": {"content": "a"}, "finish_reason": None}]}
+                events.append("second")
+                yield {"choices": [{"delta": {"content": "b"}, "finish_reason": "stop"}]}
+
+        fake_alpha_module = types.ModuleType("harness.caste.alpha")
+        fake_beta_module = types.ModuleType("harness.caste.beta")
+        fake_gamma_module = types.ModuleType("harness.caste.gamma")
+        fake_alpha_module.Alpha = FakeAlpha
+        fake_beta_module.Beta = lambda tool_service=None: MagicMock()
+        fake_gamma_module.Gamma = lambda tool_service=None: MagicMock()
+        tool_service = MagicMock()
+        tool_service.run_loop = MagicMock()
+
+        with (
+            patch("harness.config.load_config", return_value={}),
+            patch.dict(
+                sys.modules,
+                {
+                    "harness.caste.alpha": fake_alpha_module,
+                    "harness.caste.beta": fake_beta_module,
+                    "harness.caste.gamma": fake_gamma_module,
+                },
+            ),
+        ):
+            router = Router(tool_service=tool_service)
+            stream = router.openai_chat_completion_stream(
+                model="alpha",
+                messages=[{"role": "user", "content": "hello"}],
+            )
+            first_chunk = next(stream)
+
+        self.assertEqual(first_chunk["choices"][0]["delta"]["content"], "a")
+        self.assertEqual(events, ["first"])
+        tool_service.run_loop.assert_not_called()
 
     def test_dispatch_treats_tools_none_as_not_requested(self):
         class _FakeCaste:

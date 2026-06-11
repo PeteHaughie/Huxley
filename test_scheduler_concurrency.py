@@ -1,4 +1,5 @@
 import time
+import threading
 import unittest
 
 from harness.board import JobBoard, Task, Level
@@ -12,6 +13,9 @@ class SchedulerConcurrencyTests(unittest.TestCase):
         JobBoard().clear()
         _peer_table._peers.clear()
         self.infer_calls = []
+        self._active_calls = 0
+        self.max_active_calls = 0
+        self._active_lock = threading.Lock()
 
     def tearDown(self):
         JobBoard().clear()
@@ -19,8 +23,15 @@ class SchedulerConcurrencyTests(unittest.TestCase):
 
     def _slow_infer(self, prompt, level, max_output=512, use_tools=False):
         self.infer_calls.append((prompt, level))
-        time.sleep(SLOW_INFER_DELAY)
-        return f"done: {prompt[:20]}"
+        with self._active_lock:
+            self._active_calls += 1
+            self.max_active_calls = max(self.max_active_calls, self._active_calls)
+        try:
+            time.sleep(SLOW_INFER_DELAY)
+            return f"done: {prompt[:20]}"
+        finally:
+            with self._active_lock:
+                self._active_calls -= 1
 
     def test_concurrent_tick_does_3_tasks_faster_than_sequential(self):
         board = JobBoard()
@@ -30,19 +41,14 @@ class SchedulerConcurrencyTests(unittest.TestCase):
         engine = SchedulerEngine(max_concurrent=4, tick_interval=999)
         engine._infer = self._slow_infer
 
-        start = time.perf_counter()
         engine._worker_tick()
-        elapsed = time.perf_counter() - start
 
         tasks = board.list()
         done = [t for t in tasks if t.state.name == "DONE"]
 
         self.assertEqual(len(done), 3)
         self.assertEqual(len(self.infer_calls), 3)
-        self.assertLess(
-            elapsed, 2.8 * SLOW_INFER_DELAY,
-            f"{elapsed:.2f}s — sequential would take ~{3 * SLOW_INFER_DELAY:.2f}s",
-        )
+        self.assertGreaterEqual(self.max_active_calls, 2)
 
     def test_max_concurrent_2_leaves_remaining_tasks_unclaimed(self):
         board = JobBoard()

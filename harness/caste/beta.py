@@ -26,6 +26,7 @@ class Beta(CasteBase):
         self.ctx_size = _cfg.get("ctx_size", 65536)
         self._port = int(_cfg.get("port", os.environ.get("HUXLEY_BETA_PORT", "8082")))
         self._ngl = int(_cfg.get("ngl", 99))
+        self._kill_stale_listener = bool(_cfg.get("kill_stale_listener", False))
         self._proc: Optional[subprocess.Popen] = None
         self._client: Optional[object] = None
 
@@ -66,12 +67,15 @@ class Beta(CasteBase):
             return None
         return None
 
-    def _clear_stale_listener(self):
+    def _foreign_listener_pid(self) -> Optional[int]:
         pid = self._listener_pid()
         if pid is None:
-            return
+            return None
         if self._proc and self._proc.poll() is None and self._proc.pid == pid:
-            return
+            return None
+        return pid
+
+    def _clear_stale_listener(self, pid: int):
         try:
             os.kill(pid, signal.SIGTERM)
             deadline = time.time() + 5
@@ -87,12 +91,23 @@ class Beta(CasteBase):
         except OSError as e:
             print(f"γ|beta|clear_listener_err|pid {pid}|{e}", flush=True)
 
+    def _ensure_port_available(self):
+        pid = self._foreign_listener_pid()
+        if pid is None:
+            return
+        if not self._kill_stale_listener:
+            raise RuntimeError(
+                f"beta port {self._port} already in use by pid {pid}; "
+                "set beta.kill_stale_listener=true to terminate it automatically"
+            )
+        self._clear_stale_listener(pid)
+
     def start_server(self) -> bool:
         if self._proc and self._proc.poll() is None:
             return True
+        self._ensure_port_available()
         if self.client().health():
             return True
-        self._clear_stale_listener()
 
         cmd = [
             "llama-server",
