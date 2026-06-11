@@ -131,7 +131,7 @@ class Router:
             prompt = str(msg.payload.get("prompt", ""))
 
         from harness.skill.registry import SkillRegistry
-        all_skills = SkillRegistry().all_with_triggers()
+        all_skills = SkillRegistry().all_with_triggers() if self._tools_enabled else []
         matched_names = set(s["name"] for s in _match_skills(prompt, all_skills))
         if matched_names:
             catalog = self._build_skill_catalog(all_skills, matched_names)
@@ -167,7 +167,7 @@ class Router:
         response = handler.infer(msg)
 
         if isinstance(response.payload, dict):
-            content = str(response.payload.get("content", ""))
+            content = str(response.payload.get("result", response.payload.get("content", "")))
             m = re.search(r"USE_SKILL\(([\w-]+),\s*(.+?)\)", content)
             if m:
                 skill_name = m.group(1)

@@ -16,6 +16,8 @@ _TEXT_TOOL_INPUT_RE = re.compile(
 
 
 def _parse_text_tool(content: str) -> dict | None:
+    if not content.strip().startswith("{"):
+        return None
     m = _TEXT_TOOL_RE.search(content)
     if not m:
         return None

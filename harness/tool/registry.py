@@ -181,8 +181,7 @@ class ToolRegistry:
             except Exception as e:
                 fn_name = getattr(entry.get("fn"), "__name__", "?")
                 print(f"\u03b3|tool|schema_warn|builtin|{fn_name}|{e}", flush=True)
-        self._connect_mcp_servers()
-        mcp_defs = [info[1] for info in self._mcp_tool_index.values()]
+        mcp_defs = [info[1] for info in self._mcp_tool_index.values()] if self._mcp_connected else []
         if skill_name:
             skill_tool_names = set(self._skill_tool_map.get(skill_name, []))
             all_skill_tool_names = {

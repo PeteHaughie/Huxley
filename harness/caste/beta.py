@@ -333,7 +333,10 @@ class Beta(CasteBase):
         prompt = _fmt_beta_prompt(msg)
         system = _beta_system_prompt(msg.context_hint)
         try:
-            self.start_server()
+            if not self.start_server():
+                raise RuntimeError(
+                    f"beta server unavailable on port {self._port} — install llama.cpp or check config"
+                )
             ts = self._tool_service or ToolService()
             skill_name = msg.payload.get("skill_name") if isinstance(msg.payload, dict) else None
             ts.registry.scan_skills(skill_name=skill_name)
