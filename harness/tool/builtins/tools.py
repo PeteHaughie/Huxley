@@ -15,18 +15,29 @@ def set_registry(registry):
 def list_tools() -> str:
     global _REGISTRY
     if _REGISTRY is not None:
-        return "\n".join(_REGISTRY.list_tools())
+        mcp_tool_names: set[str] = set()
+        for source in _REGISTRY.list_mcp_sources():
+            mcp_tool_names.update(source["tools"])
+        lines = []
+        for name in _REGISTRY.list_tools():
+            prefix = "mcp" if name in mcp_tool_names else "builtin"
+            lines.append(f"{prefix}:{name}")
+        return "\n".join(lines)
     from harness.tool.decorator import _TOOL_REGISTRY
-    return "\n".join(sorted(_TOOL_REGISTRY.keys()))
+    return "\n".join(f"builtin:{name}" for name in sorted(_TOOL_REGISTRY.keys()))
 
 
 @tool(
     description="Get the description and JSON schema for a specific tool. Pass the exact tool name as shown by list_tools."
 )
 def tool_info(tool_name: str) -> str:
-    from harness.tool.registry import ToolRegistry
-    reg = ToolRegistry()
-    defs = reg.definitions()
+    global _REGISTRY
+    if _REGISTRY is not None:
+        defs = _REGISTRY.definitions()
+    else:
+        from harness.tool.registry import ToolRegistry
+        reg = ToolRegistry()
+        defs = reg.definitions()
     for d in defs:
         if d["function"]["name"] == tool_name:
             import json

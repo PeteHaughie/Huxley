@@ -274,16 +274,21 @@ class SchedulerEngine:
     def _worker_tick(self):
         board = JobBoard()
         claimed = []
-        for level, caste_tag in [
+        levels = [
             (Level.UNIT, "γ"),
             (Level.TASK, "β"),
             (Level.EPIC, "α"),
-        ]:
-            while len(claimed) < self._max_concurrent:
-                t = board.claim(level, caste_tag=caste_tag)
-                if t is None:
+        ]
+        made_progress = True
+        while len(claimed) < self._max_concurrent and made_progress:
+            made_progress = False
+            for level, caste_tag in levels:
+                if len(claimed) >= self._max_concurrent:
                     break
-                claimed.append(t)
+                t = board.claim(level, caste_tag=caste_tag)
+                if t is not None:
+                    claimed.append(t)
+                    made_progress = True
         if not claimed:
             self._escalation_check(board)
             return
@@ -300,6 +305,7 @@ class SchedulerEngine:
                     t = fut_map[fut]
                     print(f"γ|worker|err|{t.id[:8]}|{e}", flush=True)
                     JobBoard().complete(t.id, f"error: {e}")
+        self._escalation_check(board)
 
     def _route_work(self, task: Task, board: JobBoard):
         level = task.level

@@ -176,9 +176,13 @@ class ToolRegistry:
         mcp_defs = [info[1] for info in self._mcp_tool_index.values()]
         if skill_name:
             skill_tool_names = set(self._skill_tool_map.get(skill_name, []))
+            all_skill_tool_names = {
+                n for names in self._skill_tool_map.values() for n in names
+            }
             return [
                 d for d in builtin_defs + mcp_defs
-                if d["function"]["name"] in skill_tool_names
+                if d["function"]["name"] not in all_skill_tool_names
+                or d["function"]["name"] in skill_tool_names
             ]
         return builtin_defs + mcp_defs
 

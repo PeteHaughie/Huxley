@@ -12,7 +12,6 @@ from harness.caste._base import CasteBase
 from harness.comms.message import Message, Caste, Action
 from harness.config import load_config
 
-BETA_PORT = int(os.environ.get("HUXLEY_BETA_PORT", "8082"))
 BETA_TIMEOUT = int(os.environ.get("HUXLEY_BETA_TIMEOUT", "120"))
 
 
@@ -25,11 +24,13 @@ class Beta(CasteBase):
         _cfg = cfg or load_config().get("beta", {})
         self.model_path = os.path.expanduser(_cfg.get("model", "~/.huxley/models/Bonsai-8B.gguf"))
         self.ctx_size = _cfg.get("ctx_size", 65536)
+        self._port = int(_cfg.get("port", os.environ.get("HUXLEY_BETA_PORT", "8082")))
+        self._ngl = int(_cfg.get("ngl", 99))
         self._proc: Optional[subprocess.Popen] = None
         self._client: Optional[object] = None
 
     def _endpoint(self) -> str:
-        return f"http://127.0.0.1:{BETA_PORT}"
+        return f"http://127.0.0.1:{self._port}"
 
     def _wait_for_server(self, timeout: int = BETA_TIMEOUT) -> bool:
         url = f"{self._endpoint()}/health"
@@ -53,7 +54,7 @@ class Beta(CasteBase):
     def _listener_pid(self) -> Optional[int]:
         try:
             result = subprocess.run(
-                ["lsof", "-nP", "-t", f"-iTCP:{BETA_PORT}", "-sTCP:LISTEN"],
+                ["lsof", "-nP", "-t", f"-iTCP:{self._port}", "-sTCP:LISTEN"],
                 capture_output=True,
                 text=True,
                 timeout=5,
@@ -97,8 +98,8 @@ class Beta(CasteBase):
             "llama-server",
             "-m", self.model_path,
             "--host", "127.0.0.1",
-            "--port", str(BETA_PORT),
-            "-ngl", "99",
+            "--port", str(self._port),
+            "-ngl", str(self._ngl),
             "-c", str(self.ctx_size),
             "--alias", "beta",
         ]
@@ -194,7 +195,7 @@ class Beta(CasteBase):
     ) -> dict:
         if not self.start_server():
             raise RuntimeError(
-                f"beta server unavailable on port {BETA_PORT} — install llama.cpp or check config"
+                f"beta server unavailable on port {self._port} — install llama.cpp or check config"
             )
         resp = self._chat_with_recovery(
             messages=messages,
@@ -214,7 +215,7 @@ class Beta(CasteBase):
     ) -> Iterator[dict]:
         if not self.start_server():
             raise RuntimeError(
-                f"beta server unavailable on port {BETA_PORT} — install llama.cpp or check config"
+                f"beta server unavailable on port {self._port} — install llama.cpp or check config"
             )
         try:
             for event in self.client().stream_chat(

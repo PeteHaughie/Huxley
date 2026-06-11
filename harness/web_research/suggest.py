@@ -1,5 +1,4 @@
 from __future__ import annotations
-from urllib.parse import quote_plus
 
 import httpx
 
@@ -8,7 +7,7 @@ DDG_SUGGEST_URL = "https://duckduckgo.com/ac/"
 
 
 def suggest_query(partial_query: str) -> list[str]:
-    params = {"q": quote_plus(partial_query)}
+    params = {"q": partial_query}
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "

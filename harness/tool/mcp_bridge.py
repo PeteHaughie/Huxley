@@ -71,9 +71,9 @@ class McpBridge:
         return list(self._defs)
 
     def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
+        if not self._connected:
+            self.connect()
         with self._lock:
-            if not self._connected:
-                self.connect()
             resp = self._send_request(
                 "tools/call",
                 {"name": name, "arguments": arguments},

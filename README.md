@@ -62,8 +62,8 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 | Caste | Model | Engine | Context | Tools | Role |
 |-------|-------|--------|---------|-------|------|
 | γ | Apple Foundation Model | [Apfel](https://github.com/Arthur-Ficial/apfel) | 4K | ❌ | File I/O, classification, extraction. Stateless, disposable. |
-| β | [Ternary Bonsai 8B](https://prismml.com/news/ternary-bonsai) | llama-cpp-python | 64K | ✗ text-only | Summarisation, routing, task decomposition, tool execution with `<tool_call>` tags. |
-| α | [Gemma 4 e4B](https://ai.google.dev/gemma) 4bit | llama.cpp server + MTP | 32K | ✅ native | Orchestration, HCI, long-term memory, skill dispatch, tool execution, research. |
+| β | [Ternary Bonsai 8B](https://prismml.com/news/ternary-bonsai) | llama-server subprocess | 64K | ✗ `<tool_call>` tag parsing | Summarisation, routing, task decomposition, tool execution with `<tool_call>` tags. |
+| α | [Gemma 4 e4B](https://ai.google.dev/gemma) 4bit | llama.cpp server | 32K | ✅ native | Orchestration, HCI, long-term memory, skill dispatch, tool execution, research. |
 
 ### Job Board
 
@@ -345,7 +345,7 @@ huxley tools
 # γ|tool|mcp:web-research|web_fetch
 ```
 
-MCP servers are launched as subprocesses and communicate via JSON-RPC over stdin/stdout. The `mcp_servers` config section maps server names to python module paths:
+MCP servers are launched as subprocesses and communicate via JSON-RPC over stdin/stdout. The `mcp_servers` config section maps server names to `command` and `args`:
 
 ```yaml
 tools:
@@ -355,7 +355,8 @@ tools:
     shell: false
   mcp_servers:
     web-research:
-      module: harness.web_research.server
+      command: python
+      args: ["-m", "harness.web_research.server"]
   path_whitelist:
     - /Users/me/my-project
 ```
@@ -376,7 +377,7 @@ Tool support by caste:
 | Caste | Tool Calling | Backend |
 |-------|-------------|---------|
 | α | ✅ Native function calling | llama.cpp server `--tool-call` |
-| β | ✗ `<tool_call>` tag parsing | llama-cpp-python local inference + custom tag parser |
+| β | ✗ `<tool_call>` tag parsing | llama-server subprocess + custom tag parser |
 | γ | ❌ | No tools (Router gate rejects before inference) |
 
 The MCP bridge connects to locally-run MCP servers via stdio JSON-RPC. Servers are lazy-connected on first tool access and managed by the ToolRegistry. The default `web-research` server runs as a subprocess of the harness:
