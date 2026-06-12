@@ -25,7 +25,7 @@ All communication within the harness is curt and perfunctionary (caveman style) 
 │  User                                                    │
 │    │                                                     │
 │    ▼                                                     │
-│  α (Gemma 4 e4B)      ←──┐                               │
+│  α (Gemma 4 12B QAT)  ←──┐                               │
 │    │                     │                               │
 │    ├── posts EPICs ──────┤                               │
 │    │                     │                               │
