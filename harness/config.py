@@ -14,19 +14,17 @@ SESSIONS_DIR = HUXLEY_HOME / "sessions"
 DEFAULT_CONFIG = {
     "alpha": {
         "engine": "llama.cpp",
-        "model": "~/.huxley/models/gemma-4-E4B-it-Q4_K_M.gguf",
-        "draft_model": "~/.huxley/models/gemma-4-E4B-it-assistant-Q4_K_M.gguf",
+        "model": "~/.huxley/models/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf",
         "cache_type_k": "q4_0",
         "cache_type_v": "q4_0",
         "ctx_size": 65536,
         "ngl": 99,
-        "mtp": False,
-        "draft_block_size": 3,
-        "draft_max": 8,
     },
     "beta": {
         "model": "~/.huxley/models/Bonsai-8B.gguf",
         "ctx_size": 65536,
+        "port": 8082,
+        "ngl": 99,
     },
     "gamma": {
         "endpoint": "http://localhost:11434/v1",
@@ -74,6 +72,13 @@ DEFAULT_CONFIG = {
             "search": True,
             "shell": False,
             "skills": False,
+        },
+        "mcp_servers": {
+            "web-research": {
+                "command": "python",
+                "args": ["-m", "harness.web_research.server"],
+                "auto_start": True,
+            },
         },
         "path_whitelist": ["~/.huxley"],
     },
@@ -138,7 +143,6 @@ def _deep_merge_dicts(base: dict, overrides: dict) -> dict:
 
 _model_path_keys = [
     ("alpha", "model"),
-    ("alpha", "draft_model"),
     ("beta", "model"),
     ("cloud", "model"),
 ]
@@ -154,7 +158,7 @@ def _resolve_model_paths(cfg: dict):
 def _repair_legacy_model_aliases(cfg: dict) -> bool:
     repaired = False
     for section, keys in {
-        "alpha": ("model", "draft_model"),
+        "alpha": ("model",),
         "beta": ("model",),
     }.items():
         section_cfg = cfg.get(section)

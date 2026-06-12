@@ -101,7 +101,7 @@ class ConfigMergeTests(unittest.TestCase):
 
     def test_repair_legacy_model_aliases_restores_alpha_and_beta_defaults(self):
         cfg = {
-            "alpha": {"model": "apple-foundationmodel", "draft_model": "apple-foundationmodel"},
+            "alpha": {"model": "apple-foundationmodel"},
             "beta": {"model": "apple-foundationmodel", "fallback_model": "apple-foundationmodel"},
             "gamma": {"model": "apple-foundationmodel"},
         }
@@ -110,7 +110,6 @@ class ConfigMergeTests(unittest.TestCase):
 
         self.assertTrue(repaired)
         self.assertEqual(cfg["alpha"]["model"], DEFAULT_CONFIG["alpha"]["model"])
-        self.assertEqual(cfg["alpha"]["draft_model"], DEFAULT_CONFIG["alpha"]["draft_model"])
         self.assertEqual(cfg["beta"]["model"], DEFAULT_CONFIG["beta"]["model"])
         self.assertEqual(cfg["gamma"]["model"], "apple-foundationmodel")
 

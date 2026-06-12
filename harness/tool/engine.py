@@ -1,8 +1,47 @@
 from __future__ import annotations
 import json
+import re
 from typing import Callable
 
 from harness.tool.registry import ToolRegistry
+
+_TEXT_TOOL_RE = re.compile(
+    r'"action"\s*:\s*"([\w.]+)"',
+    re.DOTALL,
+)
+_TEXT_TOOL_INPUT_RE = re.compile(
+    r'"action_input"\s*:\s*("(?:[^"\\]|\\.)*"|\{[^{}]*\})',
+    re.DOTALL,
+)
+
+
+def _parse_text_tool(content: str) -> dict | None:
+    if not content.strip().startswith("{"):
+        return None
+    m = _TEXT_TOOL_RE.search(content)
+    if not m:
+        return None
+    name = m.group(1)
+
+    input_m = _TEXT_TOOL_INPUT_RE.search(content)
+    raw_input = input_m.group(1).strip() if input_m else "{}"
+
+    try:
+        parsed = json.loads(raw_input)
+    except (json.JSONDecodeError, TypeError):
+        parsed = raw_input.strip("\"'")
+
+    if isinstance(parsed, dict):
+        args = parsed
+    elif isinstance(parsed, str):
+        try:
+            import ast
+            args = ast.literal_eval(parsed)
+        except Exception:
+            args = {"prompt": parsed}
+    else:
+        args = {"prompt": str(parsed)}
+    return {"name": name, "arguments": args}
 
 
 class ToolService:
@@ -11,7 +50,10 @@ class ToolService:
     ):
         _cfg = tools_cfg or {}
         self._max_turns = int(_cfg.get("max_turns", 10))
-        self._registry = registry or ToolRegistry(builtins_cfg=_cfg.get("builtins", {}))
+        self._registry = registry or ToolRegistry(
+            builtins_cfg=_cfg.get("builtins", {}),
+            mcp_bridges_cfg=_cfg.get("mcp_servers", {}),
+        )
         allow_path_fns = []
         if self._registry.has_tool("read_file"):
             from harness.tool.builtins import filesystem
@@ -55,7 +97,20 @@ class ToolService:
             msg = choice.get("message", {})
 
             if not msg.get("tool_calls"):
-                return resp
+                text_tool = _parse_text_tool(msg.get("content", ""))
+                if text_tool and turn < max_turns - 1:
+                    msg["tool_calls"] = [
+                        {
+                            "id": f"tool_call_{turn}_0",
+                            "type": "function",
+                            "function": {
+                                "name": text_tool["name"],
+                                "arguments": json.dumps(text_tool["arguments"]),
+                            },
+                        }
+                    ]
+                else:
+                    return resp
 
             normalized_tool_calls = []
             for idx, tc in enumerate(msg["tool_calls"]):
