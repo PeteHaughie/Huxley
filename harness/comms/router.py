@@ -208,7 +208,6 @@ class Router:
         augmented_prompt = f"<skill:{skill_name}>\n{body}\n</skill:{skill_name}>\n\n{task}"
         ts = self._ts
         ts.registry.scan_skills(skill_name=skill_name)
-        tools = ts.registry.definitions(skill_name=skill_name)
 
         delegate_msg = Message(
             caste=Caste.BETA,

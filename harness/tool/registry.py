@@ -172,6 +172,7 @@ class ToolRegistry:
                 self._skill_tool_map[skill_name].append(name)
 
     def definitions(self, skill_name: str | None = None) -> list[dict]:
+        self._connect_mcp_servers()
         builtin_defs = []
         for entry in _TOOL_REGISTRY.values():
             if not self._is_tool_enabled(entry):
