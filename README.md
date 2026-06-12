@@ -134,14 +134,13 @@ GGUF models are stored in `~/.huxley/models/` — a central, harness-managed dir
 
 | Model | Path | Caste |
 |-------|------|-------|
-| Gemma 4 e4B (main) | `~/.huxley/models/gemma-4-e4b-Q4_K_M.gguf` | α |
-| Gemma 4 e4B draft (MTP) | `~/.huxley/models/gemma-4-e4b-draft.gguf` | α |
+| Gemma 4 12B QAT (main) | `~/.huxley/models/gemma-4-12B-it-qat-UD-Q4_K_XL.gguf` | α |
 | Ternary Bonsai 8B | `~/.huxley/models/ternary-bonsai-8b.gguf` | β |
 
 ```bash
 # List models in the models directory
 huxley models
-# γ|model|gemma-4-e4b-Q4_K_M.gguf|5.2G
+# γ|model|gemma-4-12B-it-qat-UD-Q4_K_XL.gguf|5.2G
 ```
 
 Model paths in `~/.huxley/config.yaml` use `~` expansion and are resolved at load time.
@@ -209,7 +208,7 @@ huxley daemon start
 
 # Check the API endpoint and exposed models
 huxley daemon status
-# γ|huxleyd|running|...|openai=http://127.0.0.1:8083/v1|models=gemma-4-e4b,alpha,ternary-bonsai-8b,beta
+# γ|huxleyd|running|...|openai=http://127.0.0.1:8083/v1|models=gemma-4-12b,alpha,ternary-bonsai-8b,beta
 
 # List exposed models
 curl http://127.0.0.1:8083/v1/models
@@ -240,7 +239,7 @@ Current compatibility scope:
 - `GET /v1/models`
 - `POST /v1/chat/completions`
 - both JSON and `stream=true` SSE responses
-- exposed model IDs: backend IDs (`gemma-4-e4b`, `ternary-bonsai-8b`) plus aliases such as `alpha` and `beta`
+- exposed model IDs: backend IDs (`gemma-4-12b`, `ternary-bonsai-8b`) plus aliases such as `alpha` and `beta`
 - terminal streaming marker: `data: [DONE]`
 
 Live smoke test against a running daemon:
@@ -775,8 +774,7 @@ The engine accepts a pluggable `delegate` callable for swarm-aware execution —
 ```yaml
 alpha:
   engine: llama.cpp
-  model: gemma-4-e4b-Q4_K_M.gguf
-  draft_model: gemma-4-e4b-draft.gguf
+  model: gemma-4-12B-it-qat-UD-Q4_K_XL.gguf
   cache_type_k: turbo4_0
   cache_type_v: turbo4_0
   ctx_size: 32768
