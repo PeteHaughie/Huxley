@@ -1,11 +1,50 @@
 from __future__ import annotations
 import ipaddress
+import socket
 import urllib.parse
 import httpx
 import trafilatura
 
 
 _BLOCKED_HOSTNAMES = frozenset({"localhost", "localhost."})
+
+
+def _is_safe_host(host: str) -> bool:
+    """Return True if host is a public (non-private/loopback/reserved) address."""
+    if host.lower() in _BLOCKED_HOSTNAMES:
+        return False
+    # Check if it is a bare IP literal first.
+    try:
+        addr = ipaddress.ip_address(host)
+        return not (
+            addr.is_loopback
+            or addr.is_private
+            or addr.is_reserved
+            or addr.is_link_local
+            or addr.is_multicast
+            or addr.is_unspecified
+        )
+    except ValueError:
+        pass  # not a bare IP literal – resolve it
+    # Resolve hostname and check every resulting address.
+    try:
+        results = socket.getaddrinfo(host, None, proto=socket.IPPROTO_TCP)
+        for _family, _type, _proto, _canonname, sockaddr in results:
+            raw_ip = sockaddr[0]
+            addr = ipaddress.ip_address(raw_ip)
+            if (
+                addr.is_loopback
+                or addr.is_private
+                or addr.is_reserved
+                or addr.is_link_local
+                or addr.is_multicast
+                or addr.is_unspecified
+            ):
+                return False
+    except OSError:
+        # Cannot resolve – treat as unsafe.
+        return False
+    return True
 
 
 def _is_safe_url(url: str) -> bool:
@@ -19,22 +58,7 @@ def _is_safe_url(url: str) -> bool:
     host = parsed.hostname
     if not host:
         return False
-    if host.lower() in _BLOCKED_HOSTNAMES:
-        return False
-    try:
-        addr = ipaddress.ip_address(host)
-        if (
-            addr.is_loopback
-            or addr.is_private
-            or addr.is_reserved
-            or addr.is_link_local
-            or addr.is_multicast
-            or addr.is_unspecified
-        ):
-            return False
-    except ValueError:
-        pass  # hostname, not a bare IP literal
-    return True
+    return _is_safe_host(host)
 
 
 def fetch_url(url: str) -> dict:
@@ -47,7 +71,19 @@ def fetch_url(url: str) -> dict:
             "Chrome/120.0.0.0 Safari/537.36"
         ),
     }
-    with httpx.Client(timeout=30.0, follow_redirects=True) as client:
+
+    def _on_redirect(response: httpx.Response) -> None:
+        location = response.headers.get("location", "")
+        if location and not _is_safe_url(location):
+            raise ValueError(
+                f"Blocked redirect to '{location}': only public http/https URLs are allowed"
+            )
+
+    with httpx.Client(
+        timeout=30.0,
+        follow_redirects=True,
+        event_hooks={"response": [_on_redirect]},
+    ) as client:
         resp = client.get(url, headers=headers)
         resp.raise_for_status()
         html = resp.text

@@ -79,6 +79,11 @@ class McpBridge:
     def call_tool(self, name: str, arguments: dict[str, Any]) -> str:
         if not self._connected:
             self.connect()
+        if not self._connected:
+            raise RuntimeError(
+                f"MCP server '{self._name}' is not connected "
+                "(auto_start is disabled and connect() was never called)"
+            )
         with self._lock:
             resp = self._send_request(
                 "tools/call",

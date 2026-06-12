@@ -94,6 +94,8 @@ class Router:
             Caste.BETA: self._beta,
             Caste.ALPHA: self._alpha,
         }
+        self._skill_cache: list[dict] | None = None
+        self._skill_cache_lock = __import__("threading").Lock()
         try:
             import os
             import traceback
@@ -115,6 +117,22 @@ class Router:
         except Exception:
             pass
 
+    def _get_all_skills(self) -> list[dict]:
+        """Return cached skill list, populating the cache on first call."""
+        if self._skill_cache is not None:
+            return self._skill_cache
+        with self._skill_cache_lock:
+            if self._skill_cache is not None:
+                return self._skill_cache
+            from harness.skill.registry import SkillRegistry
+            self._skill_cache = SkillRegistry().all_with_triggers()
+            return self._skill_cache
+
+    def refresh_skills(self) -> None:
+        """Invalidate the cached skill list so the next dispatch re-scans."""
+        with self._skill_cache_lock:
+            self._skill_cache = None
+
     def dispatch(self, msg: Message) -> Message:
         handler = self._routes.get(msg.caste)
         if handler is None:
@@ -130,8 +148,7 @@ class Router:
         if isinstance(msg.payload, dict):
             prompt = str(msg.payload.get("prompt", ""))
 
-        from harness.skill.registry import SkillRegistry
-        all_skills = SkillRegistry().all_with_triggers() if self._tools_enabled else []
+        all_skills = self._get_all_skills() if self._tools_enabled else []
         matched_names = set(s["name"] for s in _match_skills(prompt, all_skills))
         if matched_names:
             catalog = self._build_skill_catalog(all_skills, matched_names)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 import subprocess
+import threading
 import time
 import signal
 import os
@@ -28,6 +29,7 @@ class Alpha(CasteBase):
         self.ctx_size = ctx_size
         self._proc: Optional[subprocess.Popen] = None
         self._client: Optional[OpenAICompatibleClient] = None
+        self._server_lock = threading.Lock()
 
     def _endpoint(self) -> str:
         return f"http://127.0.0.1:{ALPHA_PORT}"
@@ -88,60 +90,61 @@ class Alpha(CasteBase):
             print(f"γ|alpha|clear_listener_err|pid {pid}|{e}", flush=True)
 
     def start_server(self) -> bool:
-        acfg = self.cfg["alpha"]
-        if self._proc and self._proc.poll() is None:
-            return True
-        if self.client().health():
-            return True
-        self._clear_stale_listener()
+        with self._server_lock:
+            acfg = self.cfg["alpha"]
+            if self._proc and self._proc.poll() is None:
+                return True
+            if self.client().health():
+                return True
+            self._clear_stale_listener()
 
-        cmd = [
-            "llama-server",
-            "-m",
-            acfg["model"],
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(ALPHA_PORT),
-            "-ngl",
-            str(acfg["ngl"]),
-            "-c",
-            str(acfg["ctx_size"]),
-            "--cache-type-k",
-            acfg["cache_type_k"],
-            "--cache-type-v",
-            acfg["cache_type_v"],
-        ]
-        reasoning_val = acfg.get("reasoning", "auto")
-        if reasoning_val is False or str(reasoning_val).lower() in ("off", "false", "no", "0"):
-            cmd.extend(["--reasoning", "off"])
+            cmd = [
+                "llama-server",
+                "-m",
+                acfg["model"],
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(ALPHA_PORT),
+                "-ngl",
+                str(acfg["ngl"]),
+                "-c",
+                str(acfg["ctx_size"]),
+                "--cache-type-k",
+                acfg["cache_type_k"],
+                "--cache-type-v",
+                acfg["cache_type_v"],
+            ]
+            reasoning_val = acfg.get("reasoning", "auto")
+            if reasoning_val is False or str(reasoning_val).lower() in ("off", "false", "no", "0"):
+                cmd.extend(["--reasoning", "off"])
 
-        try:
-            self._proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
-            ok = self._wait_for_server()
-            if not ok:
-                ret = self._proc.poll()
-                err = ""
-                if ret is not None:
-                    err = (
-                        self._proc.stderr.read().decode(errors="replace")[:500]
-                        if self._proc.stderr
-                        else ""
-                    )
-                    self._proc = None
-                else:
-                    self._proc.kill()
-                    self._proc.wait(timeout=5)
-                    self._proc = None
-                    err = "process still running after timeout"
-                print(f"γ|alpha|server_fail|{err[:200]}", flush=True)
-            return ok
-        except FileNotFoundError:
-            return False
+            try:
+                self._proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+                ok = self._wait_for_server()
+                if not ok:
+                    ret = self._proc.poll()
+                    err = ""
+                    if ret is not None:
+                        err = (
+                            self._proc.stderr.read().decode(errors="replace")[:500]
+                            if self._proc.stderr
+                            else ""
+                        )
+                        self._proc = None
+                    else:
+                        self._proc.kill()
+                        self._proc.wait(timeout=5)
+                        self._proc = None
+                        err = "process still running after timeout"
+                    print(f"γ|alpha|server_fail|{err[:200]}", flush=True)
+                return ok
+            except FileNotFoundError:
+                return False
 
     def stop_server(self):
         if self._proc is not None:

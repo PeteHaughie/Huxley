@@ -4,6 +4,7 @@ import os
 import re
 import signal
 import subprocess
+import threading
 import time
 import urllib.request
 import urllib.error
@@ -29,6 +30,7 @@ class Beta(CasteBase):
         self._kill_stale_listener = bool(_cfg.get("kill_stale_listener", False))
         self._proc: Optional[subprocess.Popen] = None
         self._client: Optional[object] = None
+        self._server_lock = threading.Lock()
 
     def _endpoint(self) -> str:
         return f"http://127.0.0.1:{self._port}"
@@ -103,47 +105,48 @@ class Beta(CasteBase):
         self._clear_stale_listener(pid)
 
     def start_server(self) -> bool:
-        if self._proc and self._proc.poll() is None:
-            return True
-        self._ensure_port_available()
-        if self.client().health():
-            return True
+        with self._server_lock:
+            if self._proc and self._proc.poll() is None:
+                return True
+            self._ensure_port_available()
+            if self.client().health():
+                return True
 
-        cmd = [
-            "llama-server",
-            "-m", self.model_path,
-            "--host", "127.0.0.1",
-            "--port", str(self._port),
-            "-ngl", str(self._ngl),
-            "-c", str(self.ctx_size),
-            "--alias", "beta",
-        ]
-        try:
-            self._proc = subprocess.Popen(
-                cmd,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.PIPE,
-            )
-            ok = self._wait_for_server()
-            if not ok:
-                ret = self._proc.poll()
-                err = ""
-                if ret is not None:
-                    err = (
-                        self._proc.stderr.read().decode(errors="replace")[:500]
-                        if self._proc.stderr
-                        else ""
-                    )
-                    self._proc = None
-                else:
-                    self._proc.kill()
-                    self._proc.wait(timeout=5)
-                    self._proc = None
-                    err = "process still running after timeout"
-                print(f"γ|beta|server_fail|{err[:200]}", flush=True)
-            return ok
-        except FileNotFoundError:
-            return False
+            cmd = [
+                "llama-server",
+                "-m", self.model_path,
+                "--host", "127.0.0.1",
+                "--port", str(self._port),
+                "-ngl", str(self._ngl),
+                "-c", str(self.ctx_size),
+                "--alias", "beta",
+            ]
+            try:
+                self._proc = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.PIPE,
+                )
+                ok = self._wait_for_server()
+                if not ok:
+                    ret = self._proc.poll()
+                    err = ""
+                    if ret is not None:
+                        err = (
+                            self._proc.stderr.read().decode(errors="replace")[:500]
+                            if self._proc.stderr
+                            else ""
+                        )
+                        self._proc = None
+                    else:
+                        self._proc.kill()
+                        self._proc.wait(timeout=5)
+                        self._proc = None
+                        err = "process still running after timeout"
+                    print(f"γ|beta|server_fail|{err[:200]}", flush=True)
+                return ok
+            except FileNotFoundError:
+                return False
 
     def stop_server(self):
         if self._proc is not None:
