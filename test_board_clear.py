@@ -55,6 +55,14 @@ class BoardClearTests(unittest.TestCase):
         self.assertEqual(body, {"status": "cleared", "removed": 2})
         self.assertEqual(board.list(), [])
 
+    def test_job_board_writes_do_not_leave_temp_files(self):
+        board = JobBoard()
+        task = board.create(Task(level=Level.UNIT, title="unit"))
+        task.title = "updated"
+        board.update(task)
+
+        self.assertEqual(sorted(p.name for p in self._board_dir.iterdir()), [f"{task.id}.json"])
+
 
 if __name__ == "__main__":
     unittest.main()

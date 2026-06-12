@@ -124,14 +124,24 @@ class JobBoard:
     def _task_path(task_id: str) -> Path:
         return HUXLEY_BOARD_DIR / f"{task_id}.json"
 
+    @staticmethod
+    def _write_task(path: Path, task: Task):
+        tmp_path = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
+        try:
+            with open(tmp_path, "w") as f:
+                json.dump(task.to_dict(), f, indent=2, ensure_ascii=False)
+            tmp_path.replace(path)
+        finally:
+            if tmp_path.exists():
+                tmp_path.unlink()
+
     # -- CRUD --
 
     def create(self, task: Task) -> Task:
         path = self._task_path(task.id)
         if path.exists():
             raise ValueError(f"task {task.id[:8]} already exists")
-        with open(path, "w") as f:
-            json.dump(task.to_dict(), f, indent=2, ensure_ascii=False)
+        self._write_task(path, task)
         return task
 
     def get(self, task_id: str) -> Optional[Task]:
@@ -147,8 +157,7 @@ class JobBoard:
 
     def update(self, task: Task):
         path = self._task_path(task.id)
-        with open(path, "w") as f:
-            json.dump(task.to_dict(), f, indent=2, ensure_ascii=False)
+        self._write_task(path, task)
 
     def delete(self, task_id: str) -> bool:
         path = self._task_path(task_id)

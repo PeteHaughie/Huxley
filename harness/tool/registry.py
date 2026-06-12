@@ -93,6 +93,7 @@ class ToolRegistry:
                         self._mcp_tool_index[fn_name] = (server_name, d)
                     self._mcp_bridges[server_name] = bridge
                 except Exception as e:
+                    bridge.disconnect()
                     print(
                         f"\u03b3|tool|mcp_connect_err|{server_name}|{e}",
                         flush=True,

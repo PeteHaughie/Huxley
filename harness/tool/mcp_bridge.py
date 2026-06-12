@@ -47,29 +47,18 @@ class McpBridge:
                 raise RuntimeError(
                     f"MCP server '{self._name}' has no command configured"
                 )
-            self._start_process()
-            self._handshake()
-            self._discover_tools()
-            self._connected = True
+            try:
+                self._start_process()
+                self._handshake()
+                self._discover_tools()
+                self._connected = True
+            except Exception:
+                self._disconnect_locked()
+                raise
 
     def disconnect(self):
         with self._lock:
-            self._connected = False
-            self._defs = []
-            self._tools = []
-            if self._proc is not None:
-                try:
-                    self._proc.stdin.close()
-                except Exception:
-                    pass
-                try:
-                    self._proc.wait(timeout=3)
-                except Exception:
-                    try:
-                        self._proc.kill()
-                    except Exception:
-                        pass
-                self._proc = None
+            self._disconnect_locked()
 
     def definitions(self) -> list[dict]:
         if not self._defs:
@@ -127,6 +116,36 @@ class McpBridge:
                 self._stderr_lines = (self._stderr_lines + [line])[-100:]
 
         threading.Thread(target=_drain_stderr, daemon=True).start()
+
+    def _disconnect_locked(self):
+        self._connected = False
+        self._defs = []
+        self._tools = []
+        if self._proc is None:
+            return
+        try:
+            if self._proc.stdin is not None:
+                self._proc.stdin.close()
+        except Exception:
+            pass
+        try:
+            if self._proc.stdout is not None:
+                self._proc.stdout.close()
+        except Exception:
+            pass
+        try:
+            if self._proc.stderr is not None:
+                self._proc.stderr.close()
+        except Exception:
+            pass
+        try:
+            self._proc.wait(timeout=3)
+        except Exception:
+            try:
+                self._proc.kill()
+            except Exception:
+                pass
+        self._proc = None
 
     def _send_request(self, method: str, params: dict | None = None) -> dict:
         self._req_id += 1

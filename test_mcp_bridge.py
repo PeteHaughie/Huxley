@@ -167,6 +167,16 @@ class TestMcpBridgeHandshake(unittest.TestCase):
         bridge.connect()  # should not raise
         self.assertFalse(bridge.connected)
 
+    def test_connect_disconnects_process_on_handshake_failure(self):
+        bridge = McpBridge(
+            "fake",
+            {"command": sys.executable, "args": ["-c", "import time; time.sleep(60)"]},
+        )
+        with patch.object(bridge, "_handshake", side_effect=RuntimeError("boom")):
+            with self.assertRaisesRegex(RuntimeError, "boom"):
+                bridge.connect()
+        self.assertIsNone(bridge._proc)
+
 
 class TestMcpBridgeSchemaConversion(unittest.TestCase):
     """Test schema normalisation helpers."""
@@ -221,6 +231,14 @@ class TestToolRegistryDefinitionsConnectsMcp(unittest.TestCase):
 
         names = [d["function"]["name"] for d in defs]
         self.assertIn("web_search", names)
+
+    def test_connect_disconnects_failed_bridge(self):
+        reg = ToolRegistry(mcp_bridges_cfg={"broken": {"command": "fake"}})
+        bridge = MagicMock()
+        bridge.definitions.side_effect = RuntimeError("boom")
+        with patch("harness.tool.mcp_bridge.McpBridge", return_value=bridge):
+            reg._connect_mcp_servers()
+        bridge.disconnect.assert_called_once()
 
 
 if __name__ == "__main__":

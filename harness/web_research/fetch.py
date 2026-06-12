@@ -74,9 +74,10 @@ def fetch_url(url: str) -> dict:
 
     def _on_redirect(response: httpx.Response) -> None:
         location = response.headers.get("location", "")
-        if location and not _is_safe_url(location):
+        target_url = urllib.parse.urljoin(str(response.url), location)
+        if location and not _is_safe_url(target_url):
             raise ValueError(
-                f"Blocked redirect to '{location}': only public http/https URLs are allowed"
+                f"Blocked redirect to '{target_url}': only public http/https URLs are allowed"
             )
 
     with httpx.Client(

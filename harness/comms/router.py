@@ -189,7 +189,8 @@ class Router:
             if m:
                 skill_name = m.group(1)
                 task = m.group(2).strip().strip('"').strip("'")
-                return self._delegate_skill(skill_name, task, msg)
+                if skill_name in matched_names:
+                    return self._delegate_skill(skill_name, task, msg)
 
         return response
 

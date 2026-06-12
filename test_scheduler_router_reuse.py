@@ -296,6 +296,56 @@ class RouterOpenAIModelTests(unittest.TestCase):
         self.assertEqual(fake_alpha.prompts[0], "hello")
         self.assertIn("<available_skills>", fake_alpha.prompts[1])
 
+    def test_dispatch_ignores_use_skill_without_matching_trigger(self):
+        class _FakeCaste:
+            supports_tools = True
+
+            def infer(self, msg):
+                return Message(
+                    caste=Caste.ALPHA,
+                    action=Action.INFER,
+                    payload={"result": 'USE_SKILL(web-search, "oceans")'},
+                )
+
+        fake_alpha_module = types.ModuleType("harness.caste.alpha")
+        fake_beta_module = types.ModuleType("harness.caste.beta")
+        fake_gamma_module = types.ModuleType("harness.caste.gamma")
+        fake_alpha_module.Alpha = lambda tool_service=None: _FakeCaste()
+        fake_beta_module.Beta = lambda tool_service=None: _FakeCaste()
+        fake_gamma_module.Gamma = lambda tool_service=None: _FakeCaste()
+
+        with (
+            patch("harness.config.load_config", return_value={}),
+            patch("harness.skill.registry.SkillRegistry.all_with_triggers", return_value=[
+                {
+                    "name": "web-search",
+                    "description": "search",
+                    "triggers": ["find out about"],
+                    "requires_tools": False,
+                }
+            ]),
+            patch.dict(
+                sys.modules,
+                {
+                    "harness.caste.alpha": fake_alpha_module,
+                    "harness.caste.beta": fake_beta_module,
+                    "harness.caste.gamma": fake_gamma_module,
+                },
+            ),
+        ):
+            router = Router()
+            with patch.object(router, "_delegate_skill") as delegate_skill:
+                resp = router.dispatch(
+                    Message(
+                        caste=Caste.ALPHA,
+                        action=Action.INFER,
+                        payload={"prompt": "hello"},
+                    )
+                )
+
+        delegate_skill.assert_not_called()
+        self.assertEqual(resp.payload["result"], 'USE_SKILL(web-search, "oceans")')
+
     def test_openai_alpha_chat_without_tool_request_skips_tool_loop(self):
         class FakeAlpha:
             def __init__(self, tool_service=None):
